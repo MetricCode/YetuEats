@@ -5,21 +5,25 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { FIREBASE_AUTH } from './FirebaseConfig';
 import LoginScreen from './app/screens/Login';
 import CustomerNavigation from './app/navigation/CustomerNavigation';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
-const LoadingScreen = () => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#FF6B35" />
-    <Text style={styles.loadingText}>Loading...</Text>
-  </View>
-);
+const LoadingScreen = () => {
+  const { theme } = useTheme();
+  
+  return (
+    <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+      <ActivityIndicator size="large" color={theme.primary} />
+      <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Loading...</Text>
+    </View>
+  );
+};
 
-export default function App() {
+const AppContent = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -34,17 +38,11 @@ export default function App() {
   }, []);
 
   if (isLoading) {
-    return (
-      <>
-        <StatusBar style="auto" />
-        <LoadingScreen />
-      </>
-    );
+    return <LoadingScreen />;
   }
 
   return (
     <>
-      <StatusBar style="auto" />
       {user ? (
         <NavigationContainer>
           <CustomerNavigation user={user} />
@@ -54,6 +52,14 @@ export default function App() {
       )}
     </>
   );
+};
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -61,11 +67,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
   },
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#6B7280',
   },
 });

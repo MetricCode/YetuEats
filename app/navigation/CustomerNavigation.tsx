@@ -1,16 +1,17 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { User } from 'firebase/auth';
-import { Home, Search, ShoppingBag, User as UserIcon, UtensilsCrossed, Compass } from 'lucide-react-native';
+import { Home, Search, ShoppingBag, User as UserIcon, Compass } from 'lucide-react-native';
 import CustomerHomeScreen from '../screens/customer/Home';
 import SearchScreen from '../screens/customer/Search';
 import OrdersScreen from '../screens/customer/Orders';
 import ProfileScreen from '../screens/customer/Profile';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const Tab = createBottomTabNavigator();
 
 const CustomerNavigation = ({ user }: { user: User }) => {
-  // Define a consistent, smaller icon size
+  const { theme } = useTheme();
   const iconSize = 22;
 
   return (
@@ -18,15 +19,20 @@ const CustomerNavigation = ({ user }: { user: User }) => {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: theme.tabBarBackground,
           borderTopWidth: 1,
-          borderTopColor: '#f0f0f0',
+          borderTopColor: theme.tabBarBorder,
           paddingBottom: 5,
           paddingTop: 5,
           height: 70,
+          shadowColor: theme.shadow,
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          elevation: 8,
         },
-        tabBarActiveTintColor: '#FF6B35',
-        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.textMuted,
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '500',

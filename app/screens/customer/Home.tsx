@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,12 @@ import {
   FlatList,
   Dimensions,
   Image,
+  Animated,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { User } from 'firebase/auth';
+import { useTheme } from '../../../contexts/ThemeContext';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -23,6 +27,8 @@ interface Restaurant {
   deliveryFee: number;
   image: string;
   isVerified?: boolean;
+  distance?: string;
+  isFavorite?: boolean;
 }
 
 interface FoodCategory {
@@ -37,13 +43,16 @@ interface PromoOffer {
   title: string;
   subtitle: string;
   discount: string;
-  bgColor: string;
+  bgColor: string[];
   image: string;
 }
 
 const CustomerHomeScreen = ({ user }: { user: User }) => {
+  const { theme, isDarkMode } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   const promoOffers: PromoOffer[] = [
     {
@@ -51,25 +60,34 @@ const CustomerHomeScreen = ({ user }: { user: User }) => {
       title: 'UPTO',
       subtitle: 'On your first order',
       discount: '30% OFF',
-      bgColor: '#2D3748',
-      image: '🍝',
+      bgColor: ['#FF6B35', '#F7931E'],
+      image: 'restaurant-outline',
     },
     {
       id: '2',
       title: 'FREE',
       subtitle: 'Delivery on orders above $20',
       discount: 'DELIVERY',
-      bgColor: '#FF6B35',
-      image: '🚚',
+      bgColor: ['#4F46E5', '#7C3AED'],
+      image: 'car-outline',
+    },
+    {
+      id: '3',
+      title: 'SAVE',
+      subtitle: 'On weekend orders',
+      discount: '25% OFF',
+      bgColor: ['#059669', '#10B981'],
+      image: 'gift-outline',
     },
   ];
 
   const categories: FoodCategory[] = [
-    { id: '1', name: 'Breakfast', icon: '🍳', bgColor: '#FFF3E0' },
-    { id: '2', name: 'Healthy', icon: '🥗', bgColor: '#E8F5E8' },
-    { id: '3', name: 'Dessert', icon: '🧁', bgColor: '#FFF0F5' },
-    { id: '4', name: 'Meal', icon: '🍽️', bgColor: '#F0F8FF' },
-    { id: '5', name: 'Pizza', icon: '🍕', bgColor: '#FFF8DC' },
+    { id: '1', name: 'Breakfast', icon: 'sunny-outline', bgColor: '#FFF3E0' },
+    { id: '2', name: 'Healthy', icon: 'leaf-outline', bgColor: '#E8F5E8' },
+    { id: '3', name: 'Dessert', icon: 'ice-cream-outline', bgColor: '#FFF0F5' },
+    { id: '4', name: 'Meal', icon: 'restaurant-outline', bgColor: '#F0F8FF' },
+    { id: '5', name: 'Pizza', icon: 'pizza-outline', bgColor: '#FFF8DC' },
+    { id: '6', name: 'Burger', icon: 'fast-food-outline', bgColor: '#FFE4E1' },
   ];
 
   const restaurants: Restaurant[] = [
@@ -82,6 +100,8 @@ const CustomerHomeScreen = ({ user }: { user: User }) => {
       deliveryFee: 0,
       image: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop',
       isVerified: true,
+      distance: '1.2 km',
+      isFavorite: false,
     },
     {
       id: '2',
@@ -92,6 +112,8 @@ const CustomerHomeScreen = ({ user }: { user: User }) => {
       deliveryFee: 2.99,
       image: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
       isVerified: false,
+      distance: '2.1 km',
+      isFavorite: true,
     },
     {
       id: '3',
@@ -102,166 +124,294 @@ const CustomerHomeScreen = ({ user }: { user: User }) => {
       deliveryFee: 1.99,
       image: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=400&h=300&fit=crop',
       isVerified: true,
+      distance: '0.8 km',
+      isFavorite: false,
+    },
+    {
+      id: '4',
+      name: 'Sushi Express',
+      cuisine: 'Japanese • Fresh',
+      rating: 4.8,
+      deliveryTime: '30 min',
+      deliveryFee: 3.99,
+      image: 'https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?w=400&h=300&fit=crop',
+      isVerified: true,
+      distance: '3.2 km',
+      isFavorite: true,
     },
   ];
 
+  const toggleFavorite = (restaurantId: string) => {
+    // In real app, this would update the favorite status in your backend
+    console.log('Toggle favorite for restaurant:', restaurantId);
+  };
+
   const renderPromoOffer = ({ item, index }: { item: PromoOffer; index: number }) => (
     <TouchableOpacity 
-      style={[styles.promoCard, { backgroundColor: item.bgColor }]}
+      style={[styles.promoCard, { width: screenWidth - 80 }]}
+      activeOpacity={0.8}
     >
-      <View style={styles.promoContent}>
-        <View style={styles.promoTextContainer}>
-          <Text style={styles.promoTitle}>{item.title}</Text>
-          <Text style={styles.promoDiscount}>{item.discount}</Text>
-          <Text style={styles.promoSubtitle}>{item.subtitle}</Text>
-          <TouchableOpacity style={styles.orderNowButton}>
-            <Text style={styles.orderNowText}>Order Now</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.promoImageContainer}>
-          <Text style={styles.promoImage}>{item.image}</Text>
-          <View style={styles.promoDecorations}>
-            <View style={[styles.decoration, styles.decoration1]} />
-            <View style={[styles.decoration, styles.decoration2]} />
-            <View style={[styles.decoration, styles.decoration3]} />
+      <LinearGradient
+        colors={item.bgColor as [import('react-native').ColorValue, import('react-native').ColorValue, ...import('react-native').ColorValue[]]}
+        style={styles.promoGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.promoContent}>
+          <View style={styles.promoTextContainer}>
+            <Text style={styles.promoTitle}>{item.title}</Text>
+            <Text style={styles.promoDiscount}>{item.discount}</Text>
+            <Text style={styles.promoSubtitle}>{item.subtitle}</Text>
+            <TouchableOpacity style={styles.orderNowButton}>
+              <Text style={styles.orderNowText}>Order Now</Text>
+              <Ionicons name="arrow-forward" size={16} color="#2D3748" style={styles.orderArrow} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.promoImageContainer}>
+            <View style={styles.promoIconBackground}>
+              <Ionicons name={item.image as any} size={40} color="#fff" />
+            </View>
+            <View style={styles.promoDecorations}>
+              <View style={[styles.decoration, styles.decoration1]} />
+              <View style={[styles.decoration, styles.decoration2]} />
+              <View style={[styles.decoration, styles.decoration3]} />
+            </View>
           </View>
         </View>
-      </View>
+      </LinearGradient>
     </TouchableOpacity>
   );
 
-  const renderCategory = ({ item }: { item: FoodCategory }) => (
-    <TouchableOpacity 
-      style={[
-        styles.categoryCard,
-        { backgroundColor: item.bgColor },
-        selectedCategory === item.id && styles.selectedCategory
-      ]}
-      onPress={() => setSelectedCategory(item.id)}
-    >
-      <View style={styles.categoryIconContainer}>
-        <Text style={styles.categoryIcon}>{item.icon}</Text>
-      </View>
-      <Text style={styles.categoryName}>{item.name}</Text>
-    </TouchableOpacity>
-  );
+  const renderCategory = ({ item }: { item: FoodCategory }) => {
+    const isSelected = selectedCategory === item.id;
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.categoryCard,
+          { backgroundColor: isDarkMode ? theme.surface : item.bgColor },
+          isSelected && { borderColor: theme.primary, borderWidth: 2 }
+        ]}
+        onPress={() => setSelectedCategory(isSelected ? '' : item.id)}
+        activeOpacity={0.7}
+      >
+        <View style={[
+          styles.categoryIconContainer,
+          { backgroundColor: isSelected ? theme.primary : '#fff' }
+        ]}>
+          <Ionicons 
+            name={item.icon as any} 
+            size={24} 
+            color={isSelected ? '#fff' : theme.primary}
+          />
+        </View>
+        <Text style={[styles.categoryName, { color: theme.text }]}>{item.name}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   const renderRestaurant = ({ item }: { item: Restaurant }) => (
-    <TouchableOpacity style={styles.restaurantCard}>
-      <Image 
-        source={{ uri: item.image }} 
-        style={styles.restaurantImage}
-        resizeMode="cover"
-      />
+    <TouchableOpacity 
+      style={[styles.restaurantCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
+      activeOpacity={0.8}
+    >
+      <View style={styles.imageContainer}>
+        <Image 
+          source={{ uri: item.image }} 
+          style={styles.restaurantImage}
+          resizeMode="cover"
+        />
+        {item.isVerified && (
+          <View style={styles.verifiedBadge}>
+            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+          </View>
+        )}
+        <TouchableOpacity 
+          style={[styles.favoriteButton, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+          onPress={() => toggleFavorite(item.id)}
+        >
+          <Ionicons 
+            name={item.isFavorite ? "heart" : "heart-outline"} 
+            size={20} 
+            color={item.isFavorite ? "#FF6B35" : "#fff"} 
+          />
+        </TouchableOpacity>
+      </View>
       
       <View style={styles.restaurantContent}>
         <View style={styles.restaurantHeader}>
-          <Text style={styles.restaurantName}>{item.name}</Text>
-          <TouchableOpacity style={styles.favoriteButton}>
-            <Text style={styles.favoriteIcon}>🤍</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.restaurantDetails}>
+          <Text style={[styles.restaurantName, { color: theme.text }]} numberOfLines={1}>
+            {item.name}
+          </Text>
           <View style={styles.ratingContainer}>
-            <Text style={styles.ratingIcon}>⭐</Text>
+            <Ionicons name="star" size={14} color="#F59E0B" />
             <Text style={styles.rating}>{item.rating}</Text>
           </View>
-          
-          <View style={styles.deliveryContainer}>
-            <Text style={styles.deliveryIcon}>🆓</Text>
-            <Text style={styles.deliveryText}>Free</Text>
+        </View>
+        
+        <Text style={[styles.cuisineText, { color: theme.textSecondary }]} numberOfLines={1}>
+          {item.cuisine}
+        </Text>
+        
+        <View style={styles.restaurantDetails}>
+          <View style={[styles.detailBadge, { backgroundColor: theme.success + '20' }]}>
+            <Ionicons name="time-outline" size={12} color={theme.success} />
+            <Text style={[styles.detailText, { color: theme.success }]}>{item.deliveryTime}</Text>
           </View>
           
-          <View style={styles.timeContainer}>
-            <Text style={styles.timeIcon}>🕐</Text>
-            <Text style={styles.timeText}>{item.deliveryTime}</Text>
+          <View style={[styles.detailBadge, { backgroundColor: theme.info + '20' }]}>
+            <Ionicons name="location-outline" size={12} color={theme.info} />
+            <Text style={[styles.detailText, { color: theme.info }]}>{item.distance}</Text>
+          </View>
+          
+          <View style={[styles.detailBadge, { backgroundColor: item.deliveryFee === 0 ? theme.success + '20' : theme.warning + '20' }]}>
+            <Ionicons name="car-outline" size={12} color={item.deliveryFee === 0 ? theme.success : theme.warning} />
+            <Text style={[styles.detailText, { color: item.deliveryFee === 0 ? theme.success : theme.warning }]}>
+              {item.deliveryFee === 0 ? 'Free' : `$${item.deliveryFee}`}
+            </Text>
           </View>
         </View>
       </View>
     </TouchableOpacity>
   );
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.locationContainer}>
-          <Text style={styles.deliveryLabel}>Delivery To</Text>
-          <View style={styles.locationRow}>
-            <Text style={styles.locationText}>Banasree, B-Block</Text>
-            <Text style={styles.dropdownIcon}>▼</Text>
-          </View>
+  const renderHeader = () => (
+    <>
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <View style={[styles.searchInputContainer, { backgroundColor: theme.inputBackground }]}>
+          <Ionicons name="search-outline" size={20} color={theme.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.text }]}
+            placeholder="Search foods and restaurants"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={theme.placeholder}
+          />
         </View>
-        <TouchableOpacity style={styles.notificationButton}>
-          <Text style={styles.notificationIcon}>🔔</Text>
-          <View style={styles.notificationBadge}>
-            <Text style={styles.badgeText}>3</Text>
-          </View>
+        <TouchableOpacity style={[styles.filterButton, { backgroundColor: theme.primary }]}>
+          <Ionicons name="options-outline" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchInputContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search foods and Ketchen"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholderTextColor="#9CA3AF"
-            />
-          </View>
-          <TouchableOpacity style={styles.filterButton}>
-            <Text style={styles.filterIcon}>⚙️</Text>
+      {/* Promo Offers */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Special Offers</Text>
+          <TouchableOpacity>
+            <Text style={[styles.seeAllText, { color: theme.primary }]}>See All</Text>
           </TouchableOpacity>
         </View>
+        <Animated.FlatList
+          data={promoOffers}
+          renderItem={renderPromoOffer}
+          keyExtractor={(item) => item.id}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.promoList}
+          snapToInterval={screenWidth - 60}
+          decelerationRate="fast"
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+            { useNativeDriver: false }
+          )}
+        />
+        <View style={styles.promoIndicators}>
+          {promoOffers.map((_, index) => {
+            const inputRange = [
+              (index - 1) * (screenWidth - 60),
+              index * (screenWidth - 60),
+              (index + 1) * (screenWidth - 60),
+            ];
+            const opacity = scrollX.interpolate({
+              inputRange,
+              outputRange: [0.3, 1, 0.3],
+              extrapolate: 'clamp',
+            });
+            return (
+              <Animated.View 
+                key={index} 
+                style={[
+                  styles.indicator, 
+                  { backgroundColor: theme.primary, opacity }
+                ]} 
+              />
+            );
+          })}
+        </View>
+      </View>
 
-        {/* Promo Offers */}
-        <View style={styles.section}>
-          <FlatList
-            data={promoOffers}
-            renderItem={renderPromoOffer}
-            keyExtractor={(item) => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.promoList}
-            snapToInterval={screenWidth - 60}
-            decelerationRate="fast"
-          />
-          <View style={styles.promoIndicators}>
-            {promoOffers.map((_, index) => (
-              <View key={index} style={styles.indicator} />
-            ))}
+      {/* Categories */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Categories</Text>
+          <TouchableOpacity>
+            <Text style={[styles.seeAllText, { color: theme.primary }]}>See All</Text>
+          </TouchableOpacity>
+        </View>
+        <FlatList
+          data={categories}
+          renderItem={renderCategory}
+          keyExtractor={(item) => item.id}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoriesList}
+        />
+      </View>
+
+      {/* Section Title */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Restaurants Near You</Text>
+          <TouchableOpacity>
+            <Text style={[styles.seeAllText, { color: theme.primary }]}>See All</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </>
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Header */}
+      <LinearGradient
+        colors={theme.primaryGradient as [import('react-native').ColorValue, import('react-native').ColorValue, ...import('react-native').ColorValue[]]}
+        style={styles.header}
+      >
+        <View style={styles.headerContent}>
+          <View style={styles.locationContainer}>
+            <Text style={styles.deliveryLabel}>Delivery To</Text>
+            <TouchableOpacity style={styles.locationRow}>
+              <Ionicons name="location" size={16} color="#fff" style={styles.locationIcon} />
+              <Text style={styles.locationText}>Banasree, B-Block</Text>
+              <Ionicons name="chevron-down" size={16} color="#fff" />
+            </TouchableOpacity>
           </View>
+          <TouchableOpacity style={styles.notificationButton}>
+            <Ionicons name="notifications-outline" size={24} color="#fff" />
+            <View style={styles.notificationBadge}>
+              <Text style={styles.badgeText}>3</Text>
+            </View>
+          </TouchableOpacity>
         </View>
+        
+        {/* Welcome Message */}
+        <View style={styles.welcomeContainer}>
+          <Text style={styles.welcomeText}>
+            Hello {user.displayName?.split(' ')[0] || 'Food Lover'}! 👋
+          </Text>
+          <Text style={styles.welcomeSubtext}>What would you like to eat today?</Text>
+        </View>
+      </LinearGradient>
 
-        {/* Categories */}
-        <View style={styles.section}>
-          <FlatList
-            data={categories}
-            renderItem={renderCategory}
-            keyExtractor={(item) => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesList}
-          />
-        </View>
-
-        {/* Kitchen Near You */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Kitchen Near You</Text>
-          <FlatList
-            data={restaurants}
-            renderItem={renderRestaurant}
-            keyExtractor={(item) => item.id}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.restaurantsList}
-          />
-        </View>
-      </ScrollView>
+      {/* Main Content */}
+      <FlatList
+        data={restaurants}
+        renderItem={renderRestaurant}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.restaurantsList}
+        ListHeaderComponent={renderHeader}
+      />
     </View>
   );
 };
@@ -269,51 +419,49 @@ const CustomerHomeScreen = ({ user }: { user: User }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
   },
   header: {
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+  },
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 20,
-    backgroundColor: '#fff',
+    marginBottom: 16,
   },
   locationContainer: {
     flex: 1,
   },
   deliveryLabel: {
     fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 2,
+    color: '#fff',
+    opacity: 0.8,
+    marginBottom: 4,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  locationIcon: {
+    marginRight: 4,
+  },
   locationText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2D3748',
-    marginRight: 5,
-  },
-  dropdownIcon: {
-    fontSize: 12,
-    color: '#6B7280',
+    color: '#fff',
+    marginRight: 4,
   },
   notificationButton: {
     position: 'relative',
     padding: 8,
   },
-  notificationIcon: {
-    fontSize: 24,
-  },
   notificationBadge: {
     position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: '#FF6B35',
+    top: 4,
+    right: 4,
+    backgroundColor: '#EF4444',
     borderRadius: 10,
     width: 20,
     height: 20,
@@ -322,64 +470,80 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
+  },
+  welcomeContainer: {
+    marginTop: 8,
+  },
+  welcomeText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  welcomeSubtext: {
+    fontSize: 14,
+    color: '#fff',
+    opacity: 0.9,
   },
   searchContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 20,
     alignItems: 'center',
   },
   searchInputContainer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 15,
-    paddingHorizontal: 15,
+    borderRadius: 16,
+    paddingHorizontal: 16,
     height: 50,
   },
   searchIcon: {
-    fontSize: 20,
-    marginRight: 10,
-    color: '#9CA3AF',
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#2D3748',
   },
   filterButton: {
-    marginLeft: 15,
-    backgroundColor: '#2D3748', // changed from '#4ADE80' (green) to dark grey
+    marginLeft: 12,
     width: 50,
     height: 50,
-    borderRadius: 15,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  filterIcon: {
-    fontSize: 20,
-  },
   section: {
-    marginBottom: 25,
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2D3748',
-    marginLeft: 20,
-    marginBottom: 15,
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   promoList: {
     paddingHorizontal: 20,
   },
   promoCard: {
-    width: screenWidth - 80,
     borderRadius: 20,
-    marginRight: 15,
+    marginRight: 16,
     overflow: 'hidden',
+  },
+  promoGradient: {
+    borderRadius: 20,
   },
   promoContent: {
     flexDirection: 'row',
@@ -395,22 +559,24 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   promoDiscount: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
-    marginVertical: 5,
+    marginVertical: 4,
   },
   promoSubtitle: {
     fontSize: 14,
     color: '#fff',
     opacity: 0.8,
-    marginBottom: 15,
+    marginBottom: 16,
   },
   orderNowButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fff',
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
     alignSelf: 'flex-start',
   },
   orderNowText: {
@@ -418,12 +584,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  orderArrow: {
+    marginLeft: 4,
+  },
   promoImageContainer: {
     position: 'relative',
     marginLeft: 20,
   },
-  promoImage: {
-    fontSize: 60,
+  promoIconBackground: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   promoDecorations: {
     position: 'absolute',
@@ -458,35 +632,29 @@ const styles = StyleSheet.create({
   promoIndicators: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 15,
+    marginTop: 16,
   },
   indicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E5E7EB',
-    marginHorizontal: 3,
+    marginHorizontal: 4,
   },
   categoriesList: {
     paddingHorizontal: 20,
   },
   categoryCard: {
     alignItems: 'center',
-    marginRight: 15,
-    borderRadius: 20,
-    padding: 15,
-    width: 80,
+    marginRight: 16,
+    borderRadius: 16,
+    padding: 16,
+    width: 90,
     minHeight: 100,
-  },
-  selectedCategory: {
-    borderWidth: 2,
-    borderColor: '#FF6B35',
   },
   categoryIconContainer: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
@@ -496,59 +664,68 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  categoryIcon: {
-    fontSize: 24,
-  },
   categoryName: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#2D3748',
     textAlign: 'center',
   },
   restaurantsList: {
-    paddingHorizontal: 20,
+    paddingBottom: 100,
   },
   restaurantCard: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
+    borderRadius: 16,
     marginHorizontal: 20,
-    marginBottom: 15,
+    marginBottom: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 2,
+  },
+  imageContainer: {
+    position: 'relative',
   },
   restaurantImage: {
     width: '100%',
-    height: 150,
+    height: 160,
+  },
+  verifiedBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  favoriteButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   restaurantContent: {
-    padding: 15,
+    padding: 16,
   },
   restaurantHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   restaurantName: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2D3748',
+    fontWeight: '600',
     flex: 1,
-  },
-  favoriteButton: {
-    padding: 5,
-  },
-  favoriteIcon: {
-    fontSize: 18,
-  },
-  restaurantDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    marginRight: 8,
   },
   ratingContainer: {
     flexDirection: 'row',
@@ -558,48 +735,32 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  ratingIcon: {
-    fontSize: 12,
-    marginRight: 2,
-  },
   rating: {
     fontSize: 12,
     fontWeight: '600',
     color: '#F59E0B',
+    marginLeft: 2,
   },
-  deliveryContainer: {
+  cuisineText: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  restaurantDetails: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5E8',
+    gap: 8,
+  },
+  detailBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  deliveryIcon: {
-    fontSize: 12,
-    marginRight: 2,
-  },
-  deliveryText: {
-    fontSize: 12,
+  detailText: {
+    fontSize: 11,
     fontWeight: '600',
-    color: '#4ADE80',
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  timeIcon: {
-    fontSize: 12,
-    marginRight: 2,
-  },
-  timeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    marginLeft: 3,
   },
 });
 

@@ -7,7 +7,12 @@ import {
   TouchableOpacity,
   FlatList,
   Image,
+  RefreshControl,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { User } from 'firebase/auth';
+import { useTheme } from '../../../contexts/ThemeContext';
 
 interface OrderItem {
   id: string;
@@ -30,8 +35,10 @@ interface Order {
 
 type OrderFilter = 'all' | 'preparing' | 'on_the_way' | 'delivered';
 
-const OrdersScreen = () => {
+const OrdersScreen = ({ user }: { user: User }) => {
+  const { theme, isDarkMode } = useTheme();
   const [selectedFilter, setSelectedFilter] = useState<OrderFilter>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   const orders: Order[] = [
     {
@@ -91,48 +98,41 @@ const OrdersScreen = () => {
 
   const getStatusColor = (status: Order['status']) => {
     switch (status) {
-      case 'preparing':
-        return '#F59E0B';
-      case 'on_the_way':
-        return '#3B82F6';
-      case 'delivered':
-        return '#10B981';
-      case 'cancelled':
-        return '#EF4444';
-      default:
-        return '#6B7280';
+      case 'preparing': return '#F59E0B';
+      case 'on_the_way': return '#3B82F6';
+      case 'delivered': return '#10B981';
+      case 'cancelled': return '#EF4444';
+      default: return theme.textMuted;
     }
   };
 
   const getStatusText = (status: Order['status']) => {
     switch (status) {
-      case 'preparing':
-        return 'Preparing';
-      case 'on_the_way':
-        return 'On the way';
-      case 'delivered':
-        return 'Delivered';
-      case 'cancelled':
-        return 'Cancelled';
-      default:
-        return 'Unknown';
+      case 'preparing': return 'Preparing';
+      case 'on_the_way': return 'On the way';
+      case 'delivered': return 'Delivered';
+      case 'cancelled': return 'Cancelled';
+      default: return 'Unknown';
     }
   };
 
   const getStatusIcon = (status: Order['status']) => {
     switch (status) {
-      case 'preparing':
-        return '👨‍🍳';
-      case 'on_the_way':
-        return '🚚';
-      case 'delivered':
-        return '✅';
-      case 'cancelled':
-        return '❌';
-      default:
-        return '❓';
+      case 'preparing': return 'restaurant-outline';
+      case 'on_the_way': return 'car-outline';
+      case 'delivered': return 'checkmark-circle';
+      case 'cancelled': return 'close-circle-outline';
+      default: return 'help-circle-outline';
     }
   };
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    // Simulate API call
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 2000);
+  }, []);
 
   const filteredOrders = selectedFilter === 'all' 
     ? orders 
@@ -145,88 +145,112 @@ const OrdersScreen = () => {
     { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
   ];
 
-  const renderFilterTab = (filter: { key: OrderFilter; label: string; count: number }) => (
-    <TouchableOpacity
-      key={filter.key}
-      style={[
-        styles.filterTab,
-        selectedFilter === filter.key && styles.activeFilterTab,
-      ]}
-      onPress={() => setSelectedFilter(filter.key)}
-    >
-      <Text
+  const renderFilterTab = (filter: { key: OrderFilter; label: string; count: number }) => {
+    const isActive = selectedFilter === filter.key;
+    
+    return (
+      <TouchableOpacity
+        key={filter.key}
         style={[
-          styles.filterTabText,
-          selectedFilter === filter.key && styles.activeFilterTabText,
+          styles.filterTab,
+          { backgroundColor: isActive ? theme.primary : theme.inputBackground },
         ]}
+        onPress={() => setSelectedFilter(filter.key)}
+        activeOpacity={0.7}
       >
-        {filter.label}
-      </Text>
-      {filter.count > 0 && (
-        <View style={styles.filterBadge}>
-          <Text style={styles.filterBadgeText}>{filter.count}</Text>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+        <Text
+          style={[
+            styles.filterTabText,
+            { color: isActive ? '#fff' : theme.textSecondary },
+          ]}
+        >
+          {filter.label}
+        </Text>
+        {filter.count > 0 && (
+          <View style={[styles.filterBadge, { backgroundColor: isActive ? 'rgba(255,255,255,0.3)' : theme.primary }]}>
+            <Text style={styles.filterBadgeText}>{filter.count}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const renderOrder = ({ item }: { item: Order }) => (
-    <TouchableOpacity style={styles.orderCard}>
+    <TouchableOpacity 
+      style={[styles.orderCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
+      activeOpacity={0.7}
+    >
+      {/* Order Header */}
       <View style={styles.orderHeader}>
         <Image source={{ uri: item.restaurantImage }} style={styles.restaurantImage} />
         <View style={styles.orderInfo}>
-          <Text style={styles.restaurantName}>{item.restaurantName}</Text>
-          <Text style={styles.orderNumber}>{item.orderNumber}</Text>
-          <Text style={styles.orderDate}>{item.orderDate}</Text>
+          <Text style={[styles.restaurantName, { color: theme.text }]}>{item.restaurantName}</Text>
+          <Text style={[styles.orderNumber, { color: theme.textSecondary }]}>{item.orderNumber}</Text>
+          <Text style={[styles.orderDate, { color: theme.textMuted }]}>{item.orderDate}</Text>
         </View>
         <View style={styles.statusContainer}>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-            <Text style={styles.statusIcon}>{getStatusIcon(item.status)}</Text>
+            <Ionicons 
+              name={getStatusIcon(item.status) as any} 
+              size={14} 
+              color="#fff" 
+              style={styles.statusIcon}
+            />
             <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
           </View>
           {item.deliveryTime && (
-            <Text style={styles.deliveryTime}>{item.deliveryTime}</Text>
+            <Text style={[styles.deliveryTime, { color: theme.primary }]}>{item.deliveryTime}</Text>
           )}
         </View>
       </View>
 
+      {/* Order Items */}
       <View style={styles.orderContent}>
         <View style={styles.itemsList}>
           {item.items.map((orderItem, index) => (
             <View key={orderItem.id} style={styles.orderItem}>
-              <Text style={styles.itemName}>
+              <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
                 {orderItem.quantity}x {orderItem.name}
               </Text>
-              <Text style={styles.itemPrice}>${orderItem.price.toFixed(2)}</Text>
+              <Text style={[styles.itemPrice, { color: theme.textSecondary }]}>
+                ${orderItem.price.toFixed(2)}
+              </Text>
             </View>
           ))}
         </View>
 
-        <View style={styles.orderFooter}>
+        {/* Order Footer */}
+        <View style={[styles.orderFooter, { borderTopColor: theme.separator }]}>
           <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>Total:</Text>
-            <Text style={styles.totalAmount}>${item.totalAmount.toFixed(2)}</Text>
+            <Text style={[styles.totalLabel, { color: theme.textSecondary }]}>Total:</Text>
+            <Text style={[styles.totalAmount, { color: theme.primary }]}>
+              ${item.totalAmount.toFixed(2)}
+            </Text>
           </View>
           
           <View style={styles.actionButtons}>
             {item.status === 'delivered' && (
               <>
-                <TouchableOpacity style={styles.secondaryButton}>
-                  <Text style={styles.secondaryButtonText}>Rate Order</Text>
+                <TouchableOpacity style={[styles.secondaryButton, { backgroundColor: theme.inputBackground }]}>
+                  <Ionicons name="star-outline" size={16} color={theme.textSecondary} />
+                  <Text style={[styles.secondaryButtonText, { color: theme.textSecondary }]}>Rate</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.primaryButton}>
+                <TouchableOpacity style={[styles.primaryButton, { backgroundColor: theme.primary }]}>
+                  <Ionicons name="repeat-outline" size={16} color="#fff" />
                   <Text style={styles.primaryButtonText}>Reorder</Text>
                 </TouchableOpacity>
               </>
             )}
             {item.status === 'on_the_way' && (
-              <TouchableOpacity style={styles.primaryButton}>
+              <TouchableOpacity style={[styles.primaryButton, { backgroundColor: theme.primary }]}>
+                <Ionicons name="location-outline" size={16} color="#fff" />
                 <Text style={styles.primaryButtonText}>Track Order</Text>
               </TouchableOpacity>
             )}
             {item.status === 'preparing' && (
-              <TouchableOpacity style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Cancel Order</Text>
+              <TouchableOpacity style={[styles.secondaryButton, { backgroundColor: theme.inputBackground }]}>
+                <Ionicons name="close-outline" size={16} color={theme.textSecondary} />
+                <Text style={[styles.secondaryButtonText, { color: theme.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -237,26 +261,40 @@ const OrdersScreen = () => {
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📋</Text>
-      <Text style={styles.emptyTitle}>No orders yet</Text>
-      <Text style={styles.emptySubtitle}>
+      <LinearGradient
+        colors={[theme.primary + '20', theme.primary + '10']}
+        style={styles.emptyIconContainer}
+      >
+        <Ionicons name="receipt-outline" size={48} color={theme.primary} />
+      </LinearGradient>
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>No orders yet</Text>
+      <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
         When you place orders, they'll appear here
       </Text>
       <TouchableOpacity style={styles.browseButton}>
-        <Text style={styles.browseButtonText}>Browse Restaurants</Text>
+        <LinearGradient
+          colors={theme.primaryGradient as [string, string]}
+          style={styles.browseButtonGradient}
+        >
+          <Text style={styles.browseButtonText}>Browse Restaurants</Text>
+        </LinearGradient>
       </TouchableOpacity>
     </View>
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <LinearGradient
+        colors={theme.primaryGradient as [string, string]}
+        style={styles.header}
+      >
         <Text style={styles.headerTitle}>My Orders</Text>
-      </View>
+        <Text style={styles.headerSubtitle}>Track your delicious meals</Text>
+      </LinearGradient>
 
       {/* Filter Tabs */}
-      <View style={styles.filterContainer}>
+      <View style={[styles.filterContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -274,9 +312,29 @@ const OrdersScreen = () => {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.ordersList}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme.primary]}
+              tintColor={theme.primary}
+            />
+          }
         />
       ) : (
-        renderEmptyState()
+        <ScrollView
+          contentContainerStyle={styles.emptyScrollContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme.primary]}
+              tintColor={theme.primary}
+            />
+          }
+        >
+          {renderEmptyState()}
+        </ScrollView>
       )}
     </View>
   );
@@ -285,53 +343,46 @@ const OrdersScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
   },
   header: {
     paddingHorizontal: 20,
     paddingTop: 50,
     paddingBottom: 20,
-    backgroundColor: '#fff',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#2D3748',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#fff',
+    opacity: 0.9,
   },
   filterContainer: {
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
   },
   filterScrollContent: {
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 16,
   },
   filterTab: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     marginRight: 12,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-  },
-  activeFilterTab: {
-    backgroundColor: '#FF6B35',
+    borderRadius: 25,
   },
   filterTabText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#6B7280',
-  },
-  activeFilterTabText: {
-    color: '#fff',
+    fontWeight: '600',
   },
   filterBadge: {
-    marginLeft: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 10,
-    paddingHorizontal: 6,
+    marginLeft: 8,
+    borderRadius: 12,
+    paddingHorizontal: 8,
     paddingVertical: 2,
     minWidth: 20,
     alignItems: 'center',
@@ -343,27 +394,27 @@ const styles = StyleSheet.create({
   },
   ordersList: {
     padding: 20,
+    paddingBottom: 100,
+  },
+  emptyScrollContainer: {
+    flexGrow: 1,
   },
   orderCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 16,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   orderHeader: {
     flexDirection: 'row',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
   },
   restaurantImage: {
     width: 50,
     height: 50,
-    borderRadius: 8,
+    borderRadius: 12,
     marginRight: 12,
   },
   orderInfo: {
@@ -371,18 +422,15 @@ const styles = StyleSheet.create({
   },
   restaurantName: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2D3748',
-    marginBottom: 2,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   orderNumber: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 13,
     marginBottom: 2,
   },
   orderDate: {
     fontSize: 12,
-    color: '#9CA3AF',
   },
   statusContainer: {
     alignItems: 'flex-end',
@@ -390,13 +438,12 @@ const styles = StyleSheet.create({
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
     marginBottom: 4,
   },
   statusIcon: {
-    fontSize: 12,
     marginRight: 4,
   },
   statusText: {
@@ -407,10 +454,10 @@ const styles = StyleSheet.create({
   deliveryTime: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#FF6B35',
   },
   orderContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
   itemsList: {
     marginBottom: 16,
@@ -419,49 +466,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   itemName: {
     fontSize: 14,
-    color: '#2D3748',
     flex: 1,
+    marginRight: 12,
   },
   itemPrice: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#6B7280',
   },
   orderFooter: {
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
     paddingTop: 16,
   },
   totalContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   totalLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2D3748',
   },
   totalAmount: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FF6B35',
   },
   actionButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: 8,
   },
   primaryButton: {
-    backgroundColor: '#FF6B35',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginLeft: 8,
+    paddingVertical: 10,
+    borderRadius: 25,
+    gap: 4,
   },
   primaryButtonText: {
     color: '#fff',
@@ -469,14 +514,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   secondaryButton: {
-    backgroundColor: '#F3F4F6',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginLeft: 8,
+    paddingVertical: 10,
+    borderRadius: 25,
+    gap: 4,
   },
   secondaryButtonText: {
-    color: '#6B7280',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -485,29 +530,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
+    paddingVertical: 60,
   },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2D3748',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: 14,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 32,
+    lineHeight: 20,
   },
   browseButton: {
-    backgroundColor: '#FF6B35',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
     borderRadius: 25,
+    overflow: 'hidden',
+  },
+  browseButtonGradient: {
+    paddingHorizontal: 32,
+    paddingVertical: 16,
   },
   browseButtonText: {
     color: '#fff',
