@@ -12,6 +12,7 @@ import {
   ImageBackground,
   Dimensions,
   StatusBar,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,16 @@ import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 
 const { width, height } = Dimensions.get('window');
+
+type UserType = 'customer' | 'restaurant' | 'delivery';
+
+interface UserTypeOption {
+  id: UserType;
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+}
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
@@ -75,10 +86,33 @@ const LoginScreen = () => {
     setLoading(true);
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(FIREBASE_AUTH, email, password);
-        Alert.alert('Success', 'Logged in successfully!');
+        // Sign in existing user
+        const userCredential = await signInWithEmailAndPassword(FIREBASE_AUTH, email, password);
+        const user = userCredential.user;
+        
+        // Get user data from Firestore to determine user type
+        const userDoc = await getDoc(doc(FIREBASE_DB, 'users', user.uid));
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          console.log('User signed in with type:', userData.userType);
+          Alert.alert('Success', `Welcome back, ${userData.name}!`);
+        } else {
+          // If user document doesn't exist, create one with default customer type
+          await setDoc(doc(FIREBASE_DB, 'users', user.uid), {
+            uid: user.uid,
+            name: user.displayName || 'User',
+            email: user.email,
+            userType: 'customer',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isActive: true,
+            profileComplete: false,
+          });
+          console.log('Created default user document for existing user');
+        }
       } else {
-        // Create user account
+        // Create new user account
         const userCredential = await createUserWithEmailAndPassword(FIREBASE_AUTH, email, password);
         const user = userCredential.user;
         
@@ -87,20 +121,21 @@ const LoginScreen = () => {
           displayName: name,
         });
 
-        // Save user details to Firestore 'users' collection
+        // Save user details to Firestore 'users' collection with customer type (default)
         await setDoc(doc(FIREBASE_DB, 'users', user.uid), {
           uid: user.uid,
           name: name,
           email: email,
           phoneNumber: countryCode + phoneNumber,
           countryCode: countryCode,
+          userType: 'customer', // All new registrations are customers by default
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           isActive: true,
-          // Add any other fields you want to store
           profileComplete: true,
         });
 
+        console.log('User created with type: customer (default)');
         Alert.alert('Success', 'Account created successfully!');
       }
     } catch (error: any) {
@@ -133,13 +168,34 @@ const LoginScreen = () => {
         setLoading(false);
         return;
       }
+      
       const result = await request.promptAsync(discovery);
 
       console.log('Auth result:', result);
 
       if (result.type === 'success' && result.params.id_token) {
         const credential = GoogleAuthProvider.credential(result.params.id_token);
-        await signInWithCredential(FIREBASE_AUTH, credential);
+        const userCredential = await signInWithCredential(FIREBASE_AUTH, credential);
+        const user = userCredential.user;
+        
+        // Check if user exists in Firestore
+        const userDoc = await getDoc(doc(FIREBASE_DB, 'users', user.uid));
+        
+        if (!userDoc.exists()) {
+          // For new Google users, create document with customer type by default
+          // In a real app, you might want to show a user type selection modal
+          await setDoc(doc(FIREBASE_DB, 'users', user.uid), {
+            uid: user.uid,
+            name: user.displayName || 'User',
+            email: user.email,
+            userType: 'customer', // Default to customer for Google sign-in
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isActive: true,
+            profileComplete: false,
+          });
+        }
+        
         Alert.alert('Success', 'Signed in with Google successfully!');
       } else if (result.type === 'cancel') {
         Alert.alert('Cancelled', 'Google sign-in was cancelled');
@@ -222,188 +278,192 @@ const LoginScreen = () => {
         </View>
 
         <View style={styles.formCard}>
-          {!isLogin && (
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Full Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your full name"
-                placeholderTextColor="#999"
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-                autoCorrect={false}
-              />
-            </View>
-          )}
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* {!isLogin && renderUserTypeSelector()} */}
 
-          {!isLogin && (
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Phone Number</Text>
-              <View style={styles.phoneContainer}>
-                <TouchableOpacity 
-                  style={styles.countryCodeButton}
-                  onPress={() => setShowCountryPicker(!showCountryPicker)}
-                >
-                  <Text style={styles.countryCodeText}>
-                    {countryCodes.find(c => c.code === countryCode)?.flag} {countryCode}
-                  </Text>
-                  <Ionicons name="chevron-down" size={16} color="#666" />
-                </TouchableOpacity>
-                
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Full Name</Text>
                 <TextInput
-                  style={styles.phoneInput}
-                  placeholder="712345678"
+                  style={styles.input}
+                  placeholder="Enter your full name"
                   placeholderTextColor="#999"
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                  keyboardType="phone-pad"
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
                   autoCorrect={false}
                 />
               </View>
-              
-              {showCountryPicker && (
-                <View style={styles.countryPicker}>
-                  {countryCodes.map((country) => (
-                    <TouchableOpacity
-                      key={country.code}
-                      style={styles.countryOption}
-                      onPress={() => {
-                        setCountryCode(country.code);
-                        setShowCountryPicker(false);
-                      }}
-                    >
-                      <Text style={styles.countryOptionText}>
-                        {country.flag} {country.code} {country.country}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+            )}
+
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Phone Number</Text>
+                <View style={styles.phoneContainer}>
+                  <TouchableOpacity 
+                    style={styles.countryCodeButton}
+                    onPress={() => setShowCountryPicker(!showCountryPicker)}
+                  >
+                    <Text style={styles.countryCodeText}>
+                      {countryCodes.find(c => c.code === countryCode)?.flag} {countryCode}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color="#666" />
+                  </TouchableOpacity>
+                  
+                  <TextInput
+                    style={styles.phoneInput}
+                    placeholder="712345678"
+                    placeholderTextColor="#999"
+                    value={phoneNumber}
+                    onChangeText={setPhoneNumber}
+                    keyboardType="phone-pad"
+                    autoCorrect={false}
+                  />
                 </View>
-              )}
-            </View>
-          )}
+                
+                {showCountryPicker && (
+                  <View style={styles.countryPicker}>
+                    {countryCodes.map((country) => (
+                      <TouchableOpacity
+                        key={country.code}
+                        style={styles.countryOption}
+                        onPress={() => {
+                          setCountryCode(country.code);
+                          setShowCountryPicker(false);
+                        }}
+                      >
+                        <Text style={styles.countryOptionText}>
+                          {country.flag} {country.code} {country.country}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Email Address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email address"
-              placeholderTextColor="#999"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter your password"
-                placeholderTextColor="#999"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity 
-                style={styles.eyeIcon}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons 
-                  name={showPassword ? "eye" : "eye-off"} 
-                  size={20} 
-                  color="#999" 
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {!isLogin && (
             <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Confirm Password</Text>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email address"
+                placeholderTextColor="#999"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Password</Text>
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={styles.passwordInput}
                   placeholder="Enter your password"
                   placeholderTextColor="#999"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showConfirmPassword}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
                   autoCapitalize="none"
                 />
                 <TouchableOpacity 
                   style={styles.eyeIcon}
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  onPress={() => setShowPassword(!showPassword)}
                 >
                   <Ionicons 
-                    name={showConfirmPassword ? "eye" : "eye-off"} 
+                    name={showPassword ? "eye" : "eye-off"} 
                     size={20} 
                     color="#999" 
                   />
                 </TouchableOpacity>
               </View>
             </View>
-          )}
 
-          {isLogin && (
-            <TouchableOpacity style={styles.forgotPassword}>
-              <Text style={styles.forgotPasswordText}>Forgot password</Text>
-            </TouchableOpacity>
-          )}
-
-          <View style={styles.termsContainer}>
-            <Text style={styles.termsText}>
-              I read and agreed to <Text style={styles.termsLink}>User Agreement</Text> and{'\n'}
-              <Text style={styles.termsLink}>privacy policy</Text>
-            </Text>
-          </View>
-
-          <TouchableOpacity 
-            style={styles.submitButton} 
-            onPress={handleAuth}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.submitButtonText}>
-                {isLogin ? 'Sign in' : 'Sign up'}
-              </Text>
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Confirm Password</Text>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#999"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showConfirmPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity 
+                    style={styles.eyeIcon}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    <Ionicons 
+                      name={showConfirmPassword ? "eye" : "eye-off"} 
+                      size={20} 
+                      color="#999" 
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
             )}
-          </TouchableOpacity>
 
-          <View style={styles.socialContainer}>
-            <Text style={styles.socialText}>
-              {isLogin ? 'Sign in with' : 'Sign up with'}
-            </Text>
+            {isLogin && (
+              <TouchableOpacity style={styles.forgotPassword}>
+                <Text style={styles.forgotPasswordText}>Forgot password</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.termsContainer}>
+              <Text style={styles.termsText}>
+                I read and agreed to <Text style={styles.termsLink}>User Agreement</Text> and{'\n'}
+                <Text style={styles.termsLink}>privacy policy</Text>
+              </Text>
+            </View>
+
             <TouchableOpacity 
-              style={styles.socialButton}
-              onPress={handleGoogleSignIn}
+              style={styles.submitButton} 
+              onPress={handleAuth}
               disabled={loading}
             >
-              <Ionicons name="logo-google" size={24} color="#DB4437" />
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>
+                  {isLogin ? 'Sign in' : 'Sign up'}
+                </Text>
+              )}
             </TouchableOpacity>
-          </View>
 
-          <TouchableOpacity 
-            style={styles.switchButton}
-            onPress={() => setIsLogin(!isLogin)}
-            disabled={loading}
-          >
-            <Text style={styles.switchButtonText}>
-              {isLogin 
-                ? "Don't have an account? " 
-                : "Already have an account? "
-              }
-              <Text style={styles.switchButtonBold}>
-                {isLogin ? 'Sign Up' : 'Sign In'}
+            <View style={styles.socialContainer}>
+              <Text style={styles.socialText}>
+                {isLogin ? 'Sign in with' : 'Sign up with'}
               </Text>
-            </Text>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.socialButton}
+                onPress={handleGoogleSignIn}
+                disabled={loading}
+              >
+                <Ionicons name="logo-google" size={24} color="#DB4437" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.switchButton}
+              onPress={() => setIsLogin(!isLogin)}
+              disabled={loading}
+            >
+              <Text style={styles.switchButtonText}>
+                {isLogin 
+                  ? "Don't have an account? " 
+                  : "Already have an account? "
+                }
+                <Text style={styles.switchButtonBold}>
+                  {isLogin ? 'Sign Up' : 'Sign In'}
+                </Text>
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </LinearGradient>
@@ -468,6 +528,94 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+
+  // User Type Selector Styles
+  userTypeContainer: {
+    marginBottom: 30,
+  },
+  userTypeLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  customerInfoCard: {
+    flexDirection: 'row',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#4F46E5',
+  },
+  customerInfoText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  customerInfoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4F46E5',
+    marginBottom: 4,
+  },
+  customerInfoDescription: {
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 16,
+  },
+  userTypeOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  userTypeOption: {
+    flex: 1,
+    borderWidth: 2,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: '#F9F9F9',
+    position: 'relative',
+    minHeight: 120,
+  },
+  userTypeOptionSelected: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  userTypeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  userTypeTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  userTypeDescription: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  checkIcon: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Auth Form Styles
