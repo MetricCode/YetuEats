@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,17 +8,48 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ActivityIndicator,
+  Modal,
+  Alert,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { User } from 'firebase/auth';
+import { collection, query, where, orderBy, onSnapshot, getDocs, Timestamp, doc, updateDoc } from 'firebase/firestore';
+import { FIREBASE_DB } from '../../../FirebaseConfig';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { formatPrice } from '../../../services/currency';
 
 interface OrderItem {
   id: string;
   name: string;
   quantity: number;
   price: number;
+  specialInstructions?: string;
+  subtotal: number;
+}
+
+interface DeliveryAddress {
+  label: string;
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
+
+interface PaymentMethod {
+  type: string;
+  name: string;
+}
+
+interface OrderPricing {
+  subtotal: number;
+  serviceCharge: number;
+  tax: number;
+  deliveryFee: number;
+  total: number;
 }
 
 interface Order {
@@ -27,77 +58,235 @@ interface Order {
   restaurantImage: string;
   items: OrderItem[];
   totalAmount: number;
-  status: 'preparing' | 'on_the_way' | 'delivered' | 'cancelled';
+  status: 'pending' | 'preparing' | 'on_the_way' | 'delivered' | 'cancelled';
   orderDate: string;
   deliveryTime?: string;
   orderNumber: string;
+  deliveryAddress: DeliveryAddress;
+  paymentMethod: PaymentMethod;
+  deliveryInstructions?: string;
+  pricing: OrderPricing;
+  paymentStatus: string;
 }
 
-type OrderFilter = 'all' | 'preparing' | 'on_the_way' | 'delivered';
+type OrderFilter = 'all' | 'pending' | 'preparing' | 'on_the_way' | 'delivered' | 'cancelled';
 
 const OrdersScreen = ({ user }: { user: User }) => {
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
   const [selectedFilter, setSelectedFilter] = useState<OrderFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [unsubscribe, setUnsubscribe] = useState<(() => void) | null>(null);
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
-  const orders: Order[] = [
-    {
-      id: '1',
-      restaurantName: 'Rose Garden Restaurant',
-      restaurantImage: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop',
-      items: [
-        { id: '1', name: 'Margherita Pizza', quantity: 1, price: 12.99 },
-        { id: '2', name: 'Caesar Salad', quantity: 1, price: 8.99 },
-      ],
-      totalAmount: 24.97,
-      status: 'on_the_way',
-      orderDate: '2024-06-10',
-      deliveryTime: '15 min',
-      orderNumber: '#ORD001',
-    },
-    {
-      id: '2',
-      restaurantName: 'Spice Kitchen',
-      restaurantImage: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
-      items: [
-        { id: '1', name: 'Chicken Curry', quantity: 2, price: 15.99 },
-        { id: '2', name: 'Naan Bread', quantity: 3, price: 4.99 },
-      ],
-      totalAmount: 46.96,
-      status: 'preparing',
-      orderDate: '2024-06-10',
-      orderNumber: '#ORD002',
-    },
-    {
-      id: '3',
-      restaurantName: 'Burger Palace',
-      restaurantImage: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=400&h=300&fit=crop',
-      items: [
-        { id: '1', name: 'Classic Burger', quantity: 1, price: 9.99 },
-        { id: '2', name: 'French Fries', quantity: 1, price: 4.99 },
-        { id: '3', name: 'Coke', quantity: 2, price: 3.99 },
-      ],
-      totalAmount: 22.96,
-      status: 'delivered',
-      orderDate: '2024-06-09',
-      orderNumber: '#ORD003',
-    },
-    {
-      id: '4',
-      restaurantName: 'Thai Garden',
-      restaurantImage: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop',
-      items: [
-        { id: '1', name: 'Pad Thai', quantity: 1, price: 13.99 },
-      ],
-      totalAmount: 16.48,
-      status: 'delivered',
-      orderDate: '2024-06-08',
-      orderNumber: '#ORD004',
-    },
-  ];
+  useEffect(() => {
+    // Set up real-time listener for orders
+    const setupListener = () => {
+      const ordersRef = collection(FIREBASE_DB, 'orders');
+      const q = query(
+        ordersRef,
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+
+      const unsubscribeListener = onSnapshot(q, (snapshot) => {
+        const ordersData: Order[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          // Handle different timestamp formats
+          let orderDate = new Date().toLocaleDateString();
+          
+          if (data.createdAt) {
+            try {
+              if (data.createdAt instanceof Timestamp) {
+                orderDate = data.createdAt.toDate().toLocaleDateString();
+              } else if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
+                orderDate = data.createdAt.toDate().toLocaleDateString();
+              } else if (data.createdAt.seconds) {
+                orderDate = new Date(data.createdAt.seconds * 1000).toLocaleDateString();
+              } else if (typeof data.createdAt === 'string') {
+                orderDate = new Date(data.createdAt).toLocaleDateString();
+              } else if (data.createdAt instanceof Date) {
+                orderDate = data.createdAt.toLocaleDateString();
+              }
+            } catch (error) {
+              console.warn('Error parsing createdAt:', error);
+            }
+          }
+
+          ordersData.push({
+            id: doc.id,
+            restaurantName: data.restaurantName || 'Unknown Restaurant',
+            restaurantImage: data.restaurantImage || 'https://via.placeholder.com/50x50?text=Restaurant',
+            items: (data.items || []).map((item: any) => ({
+              id: item.menuItemId || item.id || Math.random().toString(),
+              name: item.name || 'Unknown Item',
+              quantity: item.quantity || 1,
+              price: item.price || 0,
+              specialInstructions: item.specialInstructions,
+              subtotal: item.subtotal || (item.price * item.quantity) || 0,
+            })),
+            totalAmount: data.pricing?.total || 0,
+            status: data.status || 'pending',
+            orderDate,
+            deliveryTime: data.estimatedDeliveryTime,
+            orderNumber: `#${doc.id.slice(-6).toUpperCase()}`,
+            deliveryAddress: data.deliveryAddress || {},
+            paymentMethod: data.paymentMethod || {},
+            deliveryInstructions: data.deliveryInstructions,
+            pricing: data.pricing || {
+              subtotal: 0,
+              serviceCharge: 0,
+              tax: 0,
+              deliveryFee: 0,
+              total: 0,
+            },
+            paymentStatus: data.paymentStatus || 'pending',
+          });
+        });
+        
+        setOrders(ordersData);
+        setLoading(false);
+        setRefreshing(false);
+      }, (error) => {
+        console.error('Error fetching orders:', error);
+        setLoading(false);
+        setRefreshing(false);
+      });
+
+      setUnsubscribe(() => unsubscribeListener);
+    };
+
+    setupListener();
+
+    // Cleanup listener on unmount
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [user.uid]);
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    
+    try {
+      // Fetch fresh data from Firestore
+      const ordersRef = collection(FIREBASE_DB, 'orders');
+      const q = query(
+        ordersRef,
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+
+      const snapshot = await getDocs(q);
+      const ordersData: Order[] = [];
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        
+        // Handle different timestamp formats
+        let orderDate = new Date().toLocaleDateString();
+        
+        if (data.createdAt) {
+          try {
+            if (data.createdAt instanceof Timestamp) {
+              orderDate = data.createdAt.toDate().toLocaleDateString();
+            } else if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
+              orderDate = data.createdAt.toDate().toLocaleDateString();
+            } else if (data.createdAt.seconds) {
+              orderDate = new Date(data.createdAt.seconds * 1000).toLocaleDateString();
+            } else if (typeof data.createdAt === 'string') {
+              orderDate = new Date(data.createdAt).toLocaleDateString();
+            } else if (data.createdAt instanceof Date) {
+              orderDate = data.createdAt.toLocaleDateString();
+            }
+          } catch (error) {
+            console.warn('Error parsing createdAt:', error);
+          }
+        }
+
+        ordersData.push({
+          id: doc.id,
+          restaurantName: data.restaurantName || 'Unknown Restaurant',
+          restaurantImage: data.restaurantImage || 'https://via.placeholder.com/50x50?text=Restaurant',
+          items: (data.items || []).map((item: any) => ({
+            id: item.menuItemId || item.id || Math.random().toString(),
+            name: item.name || 'Unknown Item',
+            quantity: item.quantity || 1,
+            price: item.price || 0,
+            specialInstructions: item.specialInstructions,
+            subtotal: item.subtotal || (item.price * item.quantity) || 0,
+          })),
+          totalAmount: data.pricing?.total || 0,
+          status: data.status || 'pending',
+          orderDate,
+          deliveryTime: data.estimatedDeliveryTime,
+          orderNumber: `#${doc.id.slice(-6).toUpperCase()}`,
+          deliveryAddress: data.deliveryAddress || {},
+          paymentMethod: data.paymentMethod || {},
+          deliveryInstructions: data.deliveryInstructions,
+          pricing: data.pricing || {
+            subtotal: 0,
+            serviceCharge: 0,
+            tax: 0,
+            deliveryFee: 0,
+            total: 0,
+          },
+          paymentStatus: data.paymentStatus || 'pending',
+        });
+      });
+      
+      setOrders(ordersData);
+    } catch (error) {
+      console.error('Error refreshing orders:', error);
+      Alert.alert('Error', 'Failed to refresh orders. Please try again.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user.uid]);
+
+  const cancelOrder = async (orderId: string) => {
+    try {
+      const orderRef = doc(FIREBASE_DB, 'orders', orderId);
+      await updateDoc(orderRef, {
+        status: 'cancelled',
+        updatedAt: new Date(),
+      });
+      
+      // Show success message
+      Alert.alert('Success', 'Order cancelled successfully');
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      Alert.alert('Error', 'Failed to cancel order. Please try again.');
+    }
+  };
+
+  const handleCancelOrder = (order: Order) => {
+    Alert.alert(
+      'Cancel Order',
+      `Are you sure you want to cancel order ${order.orderNumber}?`,
+      [
+        {
+          text: 'No',
+          style: 'cancel',
+        },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: () => cancelOrder(order.id),
+        },
+      ]
+    );
+  };
 
   const getStatusColor = (status: Order['status']) => {
     switch (status) {
+      case 'pending': return '#9CA3AF';
       case 'preparing': return '#F59E0B';
       case 'on_the_way': return '#3B82F6';
       case 'delivered': return '#10B981';
@@ -108,6 +297,7 @@ const OrdersScreen = ({ user }: { user: User }) => {
 
   const getStatusText = (status: Order['status']) => {
     switch (status) {
+      case 'pending': return 'Pending';
       case 'preparing': return 'Preparing';
       case 'on_the_way': return 'On the way';
       case 'delivered': return 'Delivered';
@@ -118,6 +308,7 @@ const OrdersScreen = ({ user }: { user: User }) => {
 
   const getStatusIcon = (status: Order['status']) => {
     switch (status) {
+      case 'pending': return 'time-outline';
       case 'preparing': return 'restaurant-outline';
       case 'on_the_way': return 'car-outline';
       case 'delivered': return 'checkmark-circle';
@@ -126,24 +317,23 @@ const OrdersScreen = ({ user }: { user: User }) => {
     }
   };
 
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    // Simulate API call
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 2000);
-  }, []);
-
   const filteredOrders = selectedFilter === 'all' 
     ? orders 
     : orders.filter(order => order.status === selectedFilter);
 
   const filters: { key: OrderFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: orders.length },
+    { key: 'pending', label: 'Pending', count: orders.filter(o => o.status === 'pending').length },
     { key: 'preparing', label: 'Preparing', count: orders.filter(o => o.status === 'preparing').length },
     { key: 'on_the_way', label: 'On the way', count: orders.filter(o => o.status === 'on_the_way').length },
     { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
+    { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
   ];
+
+  const handleOrderPress = (order: Order) => {
+    setSelectedOrder(order);
+    setShowOrderModal(true);
+  };
 
   const renderFilterTab = (filter: { key: OrderFilter; label: string; count: number }) => {
     const isActive = selectedFilter === filter.key;
@@ -179,6 +369,7 @@ const OrdersScreen = ({ user }: { user: User }) => {
     <TouchableOpacity 
       style={[styles.orderCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
       activeOpacity={0.7}
+      onPress={() => handleOrderPress(item)}
     >
       {/* Order Header */}
       <View style={styles.orderHeader}>
@@ -207,16 +398,21 @@ const OrdersScreen = ({ user }: { user: User }) => {
       {/* Order Items */}
       <View style={styles.orderContent}>
         <View style={styles.itemsList}>
-          {item.items.map((orderItem, index) => (
-            <View key={orderItem.id} style={styles.orderItem}>
+          {item.items.slice(0, 2).map((orderItem, index) => (
+            <View key={`${orderItem.id}-${index}`} style={styles.orderItem}>
               <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
                 {orderItem.quantity}x {orderItem.name}
               </Text>
               <Text style={[styles.itemPrice, { color: theme.textSecondary }]}>
-                ${orderItem.price.toFixed(2)}
+                {formatPrice(orderItem.price)}
               </Text>
             </View>
           ))}
+          {item.items.length > 2 && (
+            <Text style={[styles.moreItems, { color: theme.textMuted }]}>
+              +{item.items.length - 2} more items
+            </Text>
+          )}
         </View>
 
         {/* Order Footer */}
@@ -224,7 +420,7 @@ const OrdersScreen = ({ user }: { user: User }) => {
           <View style={styles.totalContainer}>
             <Text style={[styles.totalLabel, { color: theme.textSecondary }]}>Total:</Text>
             <Text style={[styles.totalAmount, { color: theme.primary }]}>
-              ${item.totalAmount.toFixed(2)}
+              {formatPrice(item.totalAmount)}
             </Text>
           </View>
           
@@ -247,8 +443,11 @@ const OrdersScreen = ({ user }: { user: User }) => {
                 <Text style={styles.primaryButtonText}>Track Order</Text>
               </TouchableOpacity>
             )}
-            {item.status === 'preparing' && (
-              <TouchableOpacity style={[styles.secondaryButton, { backgroundColor: theme.inputBackground }]}>
+            {(item.status === 'pending' || item.status === 'preparing') && (
+              <TouchableOpacity 
+                style={[styles.secondaryButton, { backgroundColor: theme.inputBackground }]}
+                onPress={() => handleCancelOrder(item)}
+              >
                 <Ionicons name="close-outline" size={16} color={theme.textSecondary} />
                 <Text style={[styles.secondaryButtonText, { color: theme.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
@@ -258,6 +457,184 @@ const OrdersScreen = ({ user }: { user: User }) => {
       </View>
     </TouchableOpacity>
   );
+
+  const renderOrderDetailsModal = () => {
+    if (!selectedOrder) return null;
+
+    return (
+      <Modal
+        visible={showOrderModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowOrderModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+          {/* Modal Header */}
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <TouchableOpacity onPress={() => setShowOrderModal(false)}>
+              <Ionicons name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Order Details</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            {/* Order Status */}
+            <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
+              <View style={styles.statusHeader}>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedOrder.status) }]}>
+                  <Ionicons 
+                    name={getStatusIcon(selectedOrder.status) as any} 
+                    size={16} 
+                    color="#fff" 
+                    style={styles.statusIcon}
+                  />
+                  <Text style={styles.statusText}>{getStatusText(selectedOrder.status)}</Text>
+                </View>
+                <Text style={[styles.orderNumber, { color: theme.text, fontSize: 18, fontWeight: 'bold' }]}>
+                  {selectedOrder.orderNumber}
+                </Text>
+              </View>
+              
+              <Text style={[styles.restaurantName, { color: theme.text, fontSize: 16, marginTop: 8 }]}>
+                {selectedOrder.restaurantName}
+              </Text>
+              <Text style={[styles.orderDate, { color: theme.textSecondary, marginTop: 4 }]}>
+                Ordered on {selectedOrder.orderDate}
+              </Text>
+              {selectedOrder.deliveryTime && (
+                <Text style={[styles.deliveryTime, { color: theme.primary, marginTop: 4 }]}>
+                  Est. delivery: {selectedOrder.deliveryTime}
+                </Text>
+              )}
+            </View>
+
+            {/* Order Items */}
+            <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Items Ordered</Text>
+              {selectedOrder.items.map((item, index) => (
+                <View key={`${item.id}-${index}`} style={styles.detailItem}>
+                  <View style={styles.itemLeft}>
+                    <Text style={[styles.itemQuantity, { color: theme.primary }]}>{item.quantity}x</Text>
+                    <View style={styles.itemInfo}>
+                      <Text style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
+                      {item.specialInstructions && (
+                        <Text style={[styles.specialInstructions, { color: theme.textSecondary }]}>
+                          Note: {item.specialInstructions}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  <Text style={[styles.itemPrice, { color: theme.text }]}>
+                    {formatPrice(item.subtotal)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Delivery Address */}
+            <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Delivery Address</Text>
+              <View style={styles.addressContainer}>
+                <Ionicons name="location" size={20} color={theme.primary} />
+                <View style={styles.addressDetails}>
+                  <Text style={[styles.addressLabel, { color: theme.text }]}>
+                    {selectedOrder.deliveryAddress.label}
+                  </Text>
+                  <Text style={[styles.addressText, { color: theme.textSecondary }]}>
+                    {selectedOrder.deliveryAddress.street}
+                  </Text>
+                  <Text style={[styles.addressText, { color: theme.textSecondary }]}>
+                    {selectedOrder.deliveryAddress.city}, {selectedOrder.deliveryAddress.state} {selectedOrder.deliveryAddress.zipCode}
+                  </Text>
+                </View>
+              </View>
+              {selectedOrder.deliveryInstructions && (
+                <View style={[styles.instructionsContainer, { backgroundColor: theme.inputBackground }]}>
+                  <Text style={[styles.instructionsLabel, { color: theme.textSecondary }]}>Delivery Instructions:</Text>
+                  <Text style={[styles.instructionsText, { color: theme.text }]}>
+                    {selectedOrder.deliveryInstructions}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Payment Method */}
+            <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment Method</Text>
+              <View style={styles.paymentContainer}>
+                <Ionicons 
+                  name={
+                    selectedOrder.paymentMethod.type === 'mobile_money' ? 'phone-portrait' :
+                    selectedOrder.paymentMethod.type === 'card' ? 'card' : 'cash'
+                  } 
+                  size={20} 
+                  color={theme.primary} 
+                />
+                <Text style={[styles.paymentText, { color: theme.text }]}>
+                  {selectedOrder.paymentMethod.name}
+                </Text>
+                <View style={[
+                  styles.paymentStatus,
+                  { backgroundColor: selectedOrder.paymentStatus === 'paid' ? theme.success : theme.warning }
+                ]}>
+                  <Text style={styles.paymentStatusText}>
+                    {selectedOrder.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Order Summary */}
+            <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Order Summary</Text>
+              
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Subtotal</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {formatPrice(selectedOrder.pricing.subtotal)}
+                </Text>
+              </View>
+              
+              {selectedOrder.pricing.serviceCharge > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Service Charge</Text>
+                  <Text style={[styles.summaryValue, { color: theme.text }]}>
+                    {formatPrice(selectedOrder.pricing.serviceCharge)}
+                  </Text>
+                </View>
+              )}
+              
+              {selectedOrder.pricing.tax > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Tax</Text>
+                  <Text style={[styles.summaryValue, { color: theme.text }]}>
+                    {formatPrice(selectedOrder.pricing.tax)}
+                  </Text>
+                </View>
+              )}
+              
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Delivery Fee</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {selectedOrder.pricing.deliveryFee === 0 ? 'Free' : formatPrice(selectedOrder.pricing.deliveryFee)}
+                </Text>
+              </View>
+              
+              <View style={[styles.summaryDivider, { backgroundColor: theme.separator }]} />
+              
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryTotalLabel, { color: theme.text }]}>Total</Text>
+                <Text style={[styles.summaryTotalValue, { color: theme.primary }]}>
+                  {formatPrice(selectedOrder.pricing.total)}
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+    );
+  };
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
@@ -282,6 +659,17 @@ const OrdersScreen = ({ user }: { user: User }) => {
     </View>
   );
 
+  if (loading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
+          Loading orders...
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
@@ -289,8 +677,12 @@ const OrdersScreen = ({ user }: { user: User }) => {
         colors={theme.primaryGradient as [string, string]}
         style={styles.header}
       >
-        <Text style={styles.headerTitle}>My Orders</Text>
-        <Text style={styles.headerSubtitle}>Track your delicious meals</Text>
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>My Orders</Text>
+            <Text style={styles.headerSubtitle}>Track your delicious meals</Text>
+          </View>
+        </View>
       </LinearGradient>
 
       {/* Filter Tabs */}
@@ -336,6 +728,9 @@ const OrdersScreen = ({ user }: { user: User }) => {
           {renderEmptyState()}
         </ScrollView>
       )}
+
+      {/* Order Details Modal */}
+      {renderOrderDetailsModal()}
     </View>
   );
 };
@@ -349,6 +744,14 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingBottom: 20,
   },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
+    flex: 1,
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -359,6 +762,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     opacity: 0.9,
+  },
+  refreshButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   filterContainer: {
     borderBottomWidth: 1,
@@ -477,6 +888,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  moreItems: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
   orderFooter: {
     borderTopWidth: 1,
     paddingTop: 16,
@@ -564,6 +980,156 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+  },
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  modalContent: {
+    flex: 1,
+    padding: 20,
+  },
+  detailSection: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  itemLeft: {
+    flexDirection: 'row',
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  itemQuantity: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginRight: 8,
+    minWidth: 30,
+  },
+  itemInfo: {
+    flex: 1,
+  },
+  specialInstructions: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  addressContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  addressDetails: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  addressLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  addressText: {
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  instructionsContainer: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+  },
+  instructionsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  instructionsText: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  paymentContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  paymentText: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+  paymentStatus: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  paymentStatusText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  summaryLabel: {
+    fontSize: 14,
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  summaryDivider: {
+    height: 1,
+    marginVertical: 8,
+  },
+  summaryTotalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  summaryTotalValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 

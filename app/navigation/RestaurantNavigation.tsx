@@ -1,9 +1,10 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { User } from 'firebase/auth';
-import { Home, BarChart3, Menu, User as UserIcon } from 'lucide-react-native';
+import { Home, BarChart3, Menu, User as UserIcon, ShoppingBag } from 'lucide-react-native';
 import RestaurantDashboardScreen from '../screens/restaurant/Dashboard';
 import MenuManagementScreen from '../screens/restaurant/Menu';
+import RestaurantOrdersScreen from '../screens/restaurant/Orders';
 import AnalyticsScreen from '../screens/restaurant/Analytics';
 import RestaurantProfileScreen from '../screens/restaurant/Profile';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -48,6 +49,17 @@ const RestaurantNavigation = ({ user }: { user: User }) => {
         }}
       >
         {() => <RestaurantDashboardScreen user={user} />}
+      </Tab.Screen>
+      
+      <Tab.Screen
+        name="Orders"
+        options={{
+          tabBarIcon: ({ color }) => (
+            <ShoppingBag size={iconSize} color={color} />
+          ),
+        }}
+      >
+        {() => <RestaurantOrdersScreen user={user} />}
       </Tab.Screen>
       
       <Tab.Screen
