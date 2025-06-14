@@ -1,17 +1,19 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { User } from 'firebase/auth';
-import { Home, BarChart3, Menu, User as UserIcon, ShoppingBag } from 'lucide-react-native';
-import RestaurantDashboardScreen from '../screens/restaurant/Dashboard';
-import MenuManagementScreen from '../screens/restaurant/Menu';
-import RestaurantOrdersScreen from '../screens/restaurant/Orders';
-import AnalyticsScreen from '../screens/restaurant/Analytics';
-import RestaurantProfileScreen from '../screens/restaurant/Profile';
+import { Home, BarChart3, Users, Building2, User as UserIcon, Car, Headphones } from 'lucide-react-native';
+import AdminDashboardScreen from '../screens/admin/Dashboard';
+import AdminAnalyticsScreen from '../screens/admin/Analytics';
+import AdminUsersManagementScreen from '../screens/admin/UsersManagement';
+import AdminRestaurantsManagementScreen from '../screens/admin/RestaurantManagement';
+import AdminDeliveryManagementScreen from '../screens/admin/DeliveryManagement';
+import AdminSupportManagementScreen from '../screens/admin/SupportManagement';
+import AdminProfileScreen from '../screens/admin/Profile';
 import { useTheme } from '../../contexts/ThemeContext';
 
 const Tab = createBottomTabNavigator();
 
-const RestaurantNavigation = ({ user }: { user: User }) => {
+const AdminNavigation = ({ user }: { user: User }) => {
   const { theme } = useTheme();
   const iconSize = 22;
 
@@ -35,7 +37,7 @@ const RestaurantNavigation = ({ user }: { user: User }) => {
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textMuted,
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '500',
         },
       }}
@@ -48,29 +50,7 @@ const RestaurantNavigation = ({ user }: { user: User }) => {
           ),
         }}
       >
-        {() => <RestaurantDashboardScreen user={user} />}
-      </Tab.Screen>
-      
-      <Tab.Screen
-        name="Orders"
-        options={{
-          tabBarIcon: ({ color }) => (
-            <ShoppingBag size={iconSize} color={color} />
-          ),
-        }}
-      >
-        {() => <RestaurantOrdersScreen user={user} />}
-      </Tab.Screen>
-      
-      <Tab.Screen
-        name="Menu"
-        options={{
-          tabBarIcon: ({ color }) => (
-            <Menu size={iconSize} color={color} />
-          ),
-        }}
-      >
-        {() => <MenuManagementScreen user={user} />}
+        {() => <AdminDashboardScreen user={user} />}
       </Tab.Screen>
       
       <Tab.Screen
@@ -81,7 +61,51 @@ const RestaurantNavigation = ({ user }: { user: User }) => {
           ),
         }}
       >
-        {() => <AnalyticsScreen user={user} />}
+        {() => <AdminAnalyticsScreen user={user} />}
+      </Tab.Screen>
+      
+      <Tab.Screen
+        name="Users"
+        options={{
+          tabBarIcon: ({ color }) => (
+            <Users size={iconSize} color={color} />
+          ),
+        }}
+      >
+        {() => <AdminUsersManagementScreen user={user} />}
+      </Tab.Screen>
+      
+      <Tab.Screen
+        name="Restaurants"
+        options={{
+          tabBarIcon: ({ color }) => (
+            <Building2 size={iconSize} color={color} />
+          ),
+        }}
+      >
+        {() => <AdminRestaurantsManagementScreen user={user} />}
+      </Tab.Screen>
+      
+      <Tab.Screen
+        name="Delivery"
+        options={{
+          tabBarIcon: ({ color }) => (
+            <Car size={iconSize} color={color} />
+          ),
+        }}
+      >
+        {() => <AdminDeliveryManagementScreen user={user} />}
+      </Tab.Screen>
+      
+      <Tab.Screen
+        name="Support"
+        options={{
+          tabBarIcon: ({ color }) => (
+            <Headphones size={iconSize} color={color} />
+          ),
+        }}
+      >
+        {() => <AdminSupportManagementScreen user={user} />}
       </Tab.Screen>
       
       <Tab.Screen
@@ -92,10 +116,10 @@ const RestaurantNavigation = ({ user }: { user: User }) => {
           ),
         }}
       >
-        {() => <RestaurantProfileScreen user={user} />}
+        {() => <AdminProfileScreen user={user} />}
       </Tab.Screen>
     </Tab.Navigator>
   );
 };
 
-export default RestaurantNavigation;
+export default AdminNavigation;

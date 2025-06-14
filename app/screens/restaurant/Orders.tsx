@@ -34,28 +34,32 @@ import { formatPrice } from '../../../services/currency';
 
 const { width: screenWidth } = Dimensions.get('window');
 
+// Type definitions for order-related data
 interface OrderItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
+  id?: string;
+  name?: string;
+  quantity?: number;
+  price?: number;
+  subtotal?: number;
   specialInstructions?: string;
-  category: string;
-  subtotal: number;
 }
 
 interface DeliveryAddress {
-  label: string;
-  street: string;
-  city: string;
-  state: string;
-  zipCode: string;
-  country: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  label?: string;
+  customerName?: string;
+  phone?: string;
 }
 
 interface PaymentMethod {
-  type: string;
-  name: string;
+  id?: string;
+  name?: string;
+  type?: string;
+  details?: any;
 }
 
 interface OrderPricing {
@@ -66,6 +70,7 @@ interface OrderPricing {
   total: number;
 }
 
+// Update the Order interface with enhanced customer fields
 interface Order {
   id: string;
   orderNumber: string;
@@ -87,7 +92,17 @@ interface Order {
   readyAt?: any;
   deliveredAt?: any;
   customerName?: string;        
-  customerPhone?: string;       
+  customerPhone?: string;
+  customer?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
+  user?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
 }
 
 type OrderStatus = Order['status'];
@@ -116,67 +131,98 @@ const RestaurantOrdersScreen = ({ user }: { user: User }) => {
     cancelled: 0,
   });
 
-  // Real-time order listener
-  useEffect(() => {
-    if (!user) return;
-
-    const ordersRef = collection(FIREBASE_DB, 'orders');
-    const ordersQuery = query(
-      ordersRef,
-      where('restaurantId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
-      const ordersList: Order[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        ordersList.push({
-          id: doc.id,
-          orderNumber: data.orderNumber || `#${doc.id.slice(-6).toUpperCase()}`,
-          userId: data.userId || '',
-          userEmail: data.userEmail || '',
-          customerName: data.customerName || 
-                     data.deliveryAddress?.label || 
-                     data.userEmail?.split('@')[0] || 
-                     'Customer',
-          customerPhone: data.customerPhone || 
-                      data.deliveryAddress?.phone || 
-                      'No phone provided',
-          restaurantId: data.restaurantId || '',
-          restaurantName: data.restaurantName || '',
-          items: data.items || [],
-          deliveryAddress: data.deliveryAddress || {},
-          paymentMethod: data.paymentMethod || {},
-          deliveryInstructions: data.deliveryInstructions || '',
-          pricing: data.pricing || {
-            subtotal: 0,
-            serviceCharge: 0,
-            tax: 0,
-            deliveryFee: 0,
-            total: 0,
-          },
-          status: data.status || 'pending',
-          paymentStatus: data.paymentStatus || 'pending',
-          estimatedDeliveryTime: data.estimatedDeliveryTime || '30-45 min',
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt,
-          confirmedAt: data.confirmedAt,
-          readyAt: data.readyAt,
-          deliveredAt: data.deliveredAt,
-        } as Order);
+  // Extract customer info utility function
+  const extractCustomerInfo = (order: Order) => {
+    const customerName = 
+      order.customerName ||
+      order.customer?.name ||
+      order.user?.name ||
+      order.deliveryAddress?.customerName ||
+      order.deliveryAddress?.label ||
+      order.userEmail?.split('@')[0] ||
+      'Unknown Customer';
+  
+    const customerPhone = 
+      order.customerPhone ||
+      order.customer?.phone ||
+      order.user?.phone ||
+      order.deliveryAddress?.phone ||
+      order.deliveryAddress?.phone ||
+      'No phone provided';
+  
+    const customerEmail = 
+      order.userEmail ||
+      order.customer?.email ||
+      order.user?.email ||
+      'No email provided';
+  
+    return {
+      name: customerName,
+      phone: customerPhone,
+      email: customerEmail
+    };
+  };
+  
+    // Real-time order listener
+    useEffect(() => {
+      if (!user) return;
+  
+      const ordersRef = collection(FIREBASE_DB, 'orders');
+      const ordersQuery = query(
+        ordersRef,
+        where('restaurantId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+  
+      const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+        const ordersList: Order[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const customerInfo = extractCustomerInfo(data as Order);
+          
+          ordersList.push({
+            id: doc.id,
+            orderNumber: data.orderNumber || `#${doc.id.slice(-6).toUpperCase()}`,
+            userId: data.userId || '',
+            userEmail: data.userEmail || '',
+            customerName: customerInfo.name,
+            customerPhone: customerInfo.phone,
+            customer: data.customer,
+            user: data.user,
+            restaurantId: data.restaurantId || '',
+            restaurantName: data.restaurantName || '',
+            items: data.items || [],
+            deliveryAddress: data.deliveryAddress || {},
+            paymentMethod: data.paymentMethod || {},
+            deliveryInstructions: data.deliveryInstructions || '',
+            pricing: data.pricing || {
+              subtotal: 0,
+              serviceCharge: 0,
+              tax: 0,
+              deliveryFee: 0,
+              total: 0,
+            },
+            status: data.status || 'pending',
+            paymentStatus: data.paymentStatus || 'pending',
+            estimatedDeliveryTime: data.estimatedDeliveryTime || '30-45 min',
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+            confirmedAt: data.confirmedAt,
+            readyAt: data.readyAt,
+            deliveredAt: data.deliveredAt,
+          } as Order);
+        });
+  
+        setOrders(ordersList);
+        updateFilterCounts(ordersList);
+        setLoading(false);
+      }, (error) => {
+        console.error('Error listening to orders:', error);
+        setLoading(false);
       });
-
-      setOrders(ordersList);
-      updateFilterCounts(ordersList);
-      setLoading(false);
-    }, (error) => {
-      console.error('Error listening to orders:', error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+  
+      return () => unsubscribe();
+    }, [user]);
 
   // Update filter counts
   const updateFilterCounts = (ordersList: Order[]) => {
@@ -437,7 +483,7 @@ const RestaurantOrdersScreen = ({ user }: { user: User }) => {
 
   const renderOrderCard = ({ item: order }: { item: Order }) => {
     const isPending = order.status === 'pending';
-    const customerName = order.customerName || 'Unknown Customer';
+    const customerInfo = extractCustomerInfo(order);
     const customerAddress = `${order.deliveryAddress?.street || ''}, ${order.deliveryAddress?.city || ''}`.trim();
 
     return (
@@ -471,7 +517,7 @@ const RestaurantOrdersScreen = ({ user }: { user: User }) => {
               )}
             </View>
             <Text style={[styles.customerName, { color: theme.textSecondary }]}>
-              {customerName}
+              {customerInfo.name}
             </Text>
             <Text style={[styles.orderTime, { color: theme.textMuted }]}>
               {getTimeAgo(order.createdAt)}
@@ -599,6 +645,7 @@ const RestaurantOrdersScreen = ({ user }: { user: User }) => {
   const renderOrderDetailsModal = () => {
     if (!selectedOrder) return null;
 
+    const customerInfo = extractCustomerInfo(selectedOrder);
     const nextStatusOptions = getNextStatusOptions(selectedOrder.status);
     const prepTime = getPreparationTime(selectedOrder);
 
@@ -656,32 +703,42 @@ const RestaurantOrdersScreen = ({ user }: { user: User }) => {
                 <View style={styles.customerRow}>
                   <Ionicons name="person" size={18} color={theme.textSecondary} />
                   <Text style={[styles.customerText, { color: theme.text }]}>
-                    {selectedOrder.deliveryAddress?.label || 'Customer'}
+                    {customerInfo.name}
                   </Text>
                 </View>
+                
                 <View style={styles.customerRow}>
                   <Ionicons name="mail" size={18} color={theme.textSecondary} />
                   <Text style={[styles.customerText, { color: theme.text }]}>
-                    {selectedOrder.userEmail || 'No email provided'}
+                    {customerInfo.email}
                   </Text>
                 </View>
-                <View style={styles.customerRow}>
-                  <Ionicons name="location" size={18} color={theme.textSecondary} />
-                  <Text style={[styles.customerText, { color: theme.text }]}>
-                    {selectedOrder.deliveryAddress?.street || 'No address provided'}
-                  </Text>
-                  {selectedOrder.deliveryAddress?.city && (
-                    <Text style={[styles.customerText, { color: theme.text }]}>
-                      {selectedOrder.deliveryAddress.city}, {selectedOrder.deliveryAddress.state} {selectedOrder.deliveryAddress.zipCode}
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.customerRow}>
-                  <Ionicons name="call" size={18} color={theme.textSecondary} />
-                  <Text style={[styles.customerText, { color: theme.text }]}>
-                    {selectedOrder.customerPhone || 'No phone number'}
-                  </Text>
-                </View>
+                
+                {customerInfo.phone && customerInfo.phone !== 'No phone provided' && (
+                  <View style={styles.customerRow}>
+                    <Ionicons name="call" size={18} color={theme.textSecondary} />
+                    <TouchableOpacity 
+                      onPress={() => {
+                        Alert.alert(
+                          'Call Customer',
+                          `Do you want to call ${customerInfo.phone}?`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { 
+                              text: 'Call', 
+                              onPress: () => console.log('Calling:', customerInfo.phone)
+                            }
+                          ]
+                        );
+                      }}
+                      style={styles.phoneButton}
+                    >
+                      <Text style={[styles.customerText, styles.phoneText, { color: theme.primary }]}>
+                        {customerInfo.phone}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -1351,6 +1408,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     fontWeight: '600',
+  },
+  phoneButton: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  phoneText: {
+    textDecorationLine: 'underline',
   },
   addressColumn: {
     marginLeft: 12,

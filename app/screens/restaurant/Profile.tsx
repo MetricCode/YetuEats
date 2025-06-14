@@ -14,11 +14,26 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { User, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  serverTimestamp,
+  collection,
+  query,
+  where,
+  orderBy,
+  getDocs,
+  limit,
+  Timestamp,
+  onSnapshot
+} from 'firebase/firestore';
 import { FIREBASE_AUTH, FIREBASE_DB } from '../../../FirebaseConfig';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { formatCurrency, formatPrice, parseCurrency, validatePrice, getCurrencyPlaceholder } from '../../../services/currency';
@@ -46,8 +61,57 @@ interface RestaurantInfo {
   monthlyRevenue: number;
   serviceCharge: number;
   taxRate: number;
+  autoAcceptOrders: boolean; // New field for auto-accept functionality
+  notificationsEnabled: boolean; // Store notifications preference
   createdAt?: any;
   updatedAt?: any;
+}
+
+interface Order {
+  id: string;
+  orderNumber: string;
+  userId: string;
+  userEmail: string;
+  restaurantId: string;
+  restaurantName: string;
+  items: OrderItem[];
+  pricing: OrderPricing;
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled';
+  paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
+  createdAt: any;
+  updatedAt: any;
+  deliveredAt?: any;
+  confirmedAt?: any;
+}
+
+interface OrderItem {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+  category: string;
+}
+
+interface OrderPricing {
+  subtotal: number;
+  serviceCharge: number;
+  tax: number;
+  deliveryFee: number;
+  total: number;
+}
+
+interface RestaurantStats {
+  totalOrders: number;
+  completedOrders: number;
+  monthlyRevenue: number;
+  weeklyRevenue: number;
+  todayRevenue: number;
+  averageOrderValue: number;
+  pendingOrders: number;
+  rating: number;
+  totalReviews: number;
+  favoriteItem?: string;
 }
 
 interface ProfileMenuSection {
@@ -71,16 +135,14 @@ interface ProfileMenuItem {
 
 const RestaurantProfileScreen = ({ user }: { user: User }) => {
   const { theme, isDarkMode, toggleTheme } = useTheme();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [autoAcceptOrders, setAutoAcceptOrders] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showHoursModal, setShowHoursModal] = useState(false);
-  const [restaurantActive, setRestaurantActive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Default restaurant data
-  const defaultRestaurantInfo: RestaurantInfo = {
+  // State for restaurant data and statistics
+  const [restaurantInfo, setRestaurantInfo] = useState<RestaurantInfo>({
     name: '',
     description: '',
     cuisine: [],
@@ -107,9 +169,21 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
     monthlyRevenue: 0,
     serviceCharge: 50,
     taxRate: 16,
-  };
+    autoAcceptOrders: false,
+    notificationsEnabled: true,
+  });
 
-  const [restaurantInfo, setRestaurantInfo] = useState<RestaurantInfo>(defaultRestaurantInfo);
+  const [restaurantStats, setRestaurantStats] = useState<RestaurantStats>({
+    totalOrders: 0,
+    completedOrders: 0,
+    monthlyRevenue: 0,
+    weeklyRevenue: 0,
+    todayRevenue: 0,
+    averageOrderValue: 0,
+    pendingOrders: 0,
+    rating: 0,
+    totalReviews: 0,
+  });
 
   // Form state for editing
   const [editForm, setEditForm] = useState({
@@ -127,7 +201,7 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
   });
 
   // Hours form state
-  const [hoursForm, setHoursForm] = useState(defaultRestaurantInfo.hours);
+  const [hoursForm, setHoursForm] = useState(restaurantInfo.hours);
 
   const daysOfWeek = [
     { key: 'monday', label: 'Monday' },
@@ -148,61 +222,131 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
     '20:00', '20:30', '21:00', '21:30', '22:00', '22:30', '23:00', '23:30',
   ];
 
-  // Load restaurant data from Firestore
+  // Calculate restaurant statistics from orders
+  const calculateRestaurantStats = (ordersList: Order[]): RestaurantStats => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(startOfToday.getTime() - (now.getDay() * 24 * 60 * 60 * 1000));
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Helper function to check if date is in range
+    const isInRange = (orderDate: any, startDate: Date) => {
+      let date: Date;
+      if (orderDate?.toDate) {
+        date = orderDate.toDate();
+      } else if (orderDate?.seconds) {
+        date = new Date(orderDate.seconds * 1000);
+      } else if (orderDate instanceof Date) {
+        date = orderDate;
+      } else {
+        return false;
+      }
+      return date >= startDate;
+    };
+
+    // Filter orders by timeframes
+    const todayOrders = ordersList.filter(o => isInRange(o.createdAt, startOfToday));
+    const weekOrders = ordersList.filter(o => isInRange(o.createdAt, startOfWeek));
+    const monthOrders = ordersList.filter(o => isInRange(o.createdAt, startOfMonth));
+
+    // Calculate revenue for completed orders
+    const calculateRevenue = (orders: Order[]) => 
+      orders.filter(o => o.status === 'delivered' && o.paymentStatus === 'paid')
+            .reduce((sum, o) => sum + (o.pricing?.total || 0), 0);
+
+    // Calculate stats
+    const completedOrders = ordersList.filter(o => o.status === 'delivered').length;
+    const pendingOrders = ordersList.filter(o => ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery'].includes(o.status)).length;
+    
+    // Average order value from completed orders
+    const completedOrdersWithValue = ordersList.filter(o => o.status === 'delivered' && o.pricing?.total);
+    const averageOrderValue = completedOrdersWithValue.length > 0 
+      ? completedOrdersWithValue.reduce((sum, o) => sum + (o.pricing?.total || 0), 0) / completedOrdersWithValue.length
+      : 0;
+
+    // Find most popular item
+    const itemCounts = new Map<string, number>();
+    ordersList.filter(o => o.status === 'delivered').forEach(order => {
+      order.items?.forEach(item => {
+        const count = itemCounts.get(item.name) || 0;
+        itemCounts.set(item.name, count + (item.quantity || 1));
+      });
+    });
+    
+    const favoriteItem = itemCounts.size > 0 
+      ? Array.from(itemCounts.entries()).sort((a, b) => b[1] - a[1])[0][0]
+      : undefined;
+
+    return {
+      totalOrders: ordersList.length,
+      completedOrders,
+      monthlyRevenue: calculateRevenue(monthOrders),
+      weeklyRevenue: calculateRevenue(weekOrders),
+      todayRevenue: calculateRevenue(todayOrders),
+      averageOrderValue,
+      pendingOrders,
+      rating: restaurantInfo.rating || 4.5, // Default rating
+      totalReviews: restaurantInfo.totalReviews || 0,
+      favoriteItem,
+    };
+  };
+
+  // Load restaurant data and orders statistics
   const loadRestaurantData = async () => {
+    if (!user?.uid) return;
+    
     try {
       setLoading(true);
+      
+      // Load restaurant info
       const docRef = doc(FIREBASE_DB, 'restaurants', user.uid);
       const docSnap = await getDoc(docRef);
       
+      let restaurantData: RestaurantInfo;
+      
       if (docSnap.exists()) {
-        const data = docSnap.data() as RestaurantInfo;
-        setRestaurantInfo(data);
-        setRestaurantActive(data.isActive);
-        setHoursForm(data.hours);
+        restaurantData = docSnap.data() as RestaurantInfo;
         
-        // Update form with loaded data
-        setEditForm({
-          name: data.name,
-          description: data.description,
-          phone: data.phone,
-          email: data.email,
-          address: data.address,
-          minimumOrder: data.minimumOrder.toString(),
-          deliveryFee: data.deliveryFee.toString(),
-          serviceCharge: data.serviceCharge.toString(),
-          deliveryRadius: data.deliveryRadius.toString(),
-          estimatedDeliveryTime: data.estimatedDeliveryTime,
-          selectedCuisines: [...data.cuisine],
-        });
+        // Ensure all new fields exist with defaults
+        restaurantData = {
+          ...restaurantData,
+          autoAcceptOrders: restaurantData.autoAcceptOrders ?? false,
+          notificationsEnabled: restaurantData.notificationsEnabled ?? true,
+        };
       } else {
         // First time setup - create default restaurant profile
-        const newRestaurant = {
-          ...defaultRestaurantInfo,
+        restaurantData = {
+          ...restaurantInfo,
           name: user.displayName || 'My Restaurant',
           email: user.email || '',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
         
-        await setDoc(docRef, newRestaurant);
-        setRestaurantInfo(newRestaurant);
-        setHoursForm(newRestaurant.hours);
-        
-        setEditForm({
-          name: newRestaurant.name,
-          description: newRestaurant.description,
-          phone: newRestaurant.phone,
-          email: newRestaurant.email,
-          address: newRestaurant.address,
-          minimumOrder: newRestaurant.minimumOrder.toString(),
-          deliveryFee: newRestaurant.deliveryFee.toString(),
-          serviceCharge: newRestaurant.serviceCharge.toString(),
-          deliveryRadius: newRestaurant.deliveryRadius.toString(),
-          estimatedDeliveryTime: newRestaurant.estimatedDeliveryTime,
-          selectedCuisines: [...newRestaurant.cuisine],
-        });
+        await setDoc(docRef, restaurantData);
       }
+      
+      setRestaurantInfo(restaurantData);
+      setHoursForm(restaurantData.hours);
+      
+      // Update edit form
+      setEditForm({
+        name: restaurantData.name,
+        description: restaurantData.description,
+        phone: restaurantData.phone,
+        email: restaurantData.email,
+        address: restaurantData.address,
+        minimumOrder: restaurantData.minimumOrder.toString(),
+        deliveryFee: restaurantData.deliveryFee.toString(),
+        serviceCharge: restaurantData.serviceCharge.toString(),
+        deliveryRadius: restaurantData.deliveryRadius.toString(),
+        estimatedDeliveryTime: restaurantData.estimatedDeliveryTime,
+        selectedCuisines: [...restaurantData.cuisine],
+      });
+
+      // Load orders for statistics
+      await loadOrdersStats();
+      
     } catch (error) {
       console.error('Error loading restaurant data:', error);
       Alert.alert('Error', 'Failed to load restaurant information');
@@ -210,6 +354,116 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
       setLoading(false);
     }
   };
+
+  // Load orders statistics
+  const loadOrdersStats = async () => {
+    if (!user?.uid) return;
+
+    try {
+      // Get orders from last 3 months for comprehensive stats
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      
+      const ordersRef = collection(FIREBASE_DB, 'orders');
+      const ordersQuery = query(
+        ordersRef,
+        where('restaurantId', '==', user.uid),
+        where('createdAt', '>=', Timestamp.fromDate(threeMonthsAgo)),
+        orderBy('createdAt', 'desc'),
+        limit(1000)
+      );
+
+      const snapshot = await getDocs(ordersQuery);
+      const ordersList: Order[] = [];
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        ordersList.push({
+          id: doc.id,
+          orderNumber: data.orderNumber || `#${doc.id.slice(-6).toUpperCase()}`,
+          userId: data.userId || '',
+          userEmail: data.userEmail || '',
+          restaurantId: data.restaurantId || '',
+          restaurantName: data.restaurantName || '',
+          items: data.items || [],
+          pricing: data.pricing || {
+            subtotal: 0,
+            serviceCharge: 0,
+            tax: 0,
+            deliveryFee: 0,
+            total: 0,
+          },
+          status: data.status || 'pending',
+          paymentStatus: data.paymentStatus || 'pending',
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+          confirmedAt: data.confirmedAt,
+          deliveredAt: data.deliveredAt,
+        } as Order);
+      });
+
+      // Calculate and update stats
+      const stats = calculateRestaurantStats(ordersList);
+      setRestaurantStats(stats);
+      
+      // Update restaurant document with latest stats
+      const docRef = doc(FIREBASE_DB, 'restaurants', user.uid);
+      await updateDoc(docRef, {
+        totalOrders: stats.totalOrders,
+        monthlyRevenue: stats.monthlyRevenue,
+        updatedAt: serverTimestamp(),
+      });
+      
+    } catch (error) {
+      console.error('Error loading orders stats:', error);
+    }
+  };
+
+  // Auto-accept orders functionality
+  useEffect(() => {
+    if (!user?.uid || !restaurantInfo.autoAcceptOrders) return;
+
+    console.log('Setting up auto-accept listener for restaurant:', user.uid);
+
+    const ordersRef = collection(FIREBASE_DB, 'orders');
+    const pendingOrdersQuery = query(
+      ordersRef,
+      where('restaurantId', '==', user.uid),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(pendingOrdersQuery, async (snapshot) => {
+      snapshot.docChanges().forEach(async (change) => {
+        if (change.type === 'added') {
+          const order = change.doc.data();
+          const orderId = change.doc.id;
+          
+          console.log('New pending order detected:', orderId);
+          
+          // Auto-accept after a brief delay (to ensure the order is fully created)
+          setTimeout(async () => {
+            try {
+              await updateDoc(doc(FIREBASE_DB, 'orders', orderId), {
+                status: 'confirmed',
+                confirmedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+              
+              console.log('Order auto-accepted:', orderId);
+              
+              // You could add a notification here if needed
+              
+            } catch (error) {
+              console.error('Error auto-accepting order:', error);
+            }
+          }, 2000); // 2 second delay
+        }
+      });
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, restaurantInfo.autoAcceptOrders]);
 
   // Save restaurant data to Firestore
   const saveRestaurantData = async (updatedInfo: Partial<RestaurantInfo>) => {
@@ -242,6 +496,13 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
     loadRestaurantData();
   }, [user.uid]);
 
+  // Refresh handler
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadRestaurantData();
+    setRefreshing(false);
+  };
+
   const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
@@ -267,7 +528,7 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
   };
 
   const toggleRestaurantStatus = async () => {
-    const newStatus = !restaurantActive;
+    const newStatus = !restaurantInfo.isActive;
     
     Alert.alert(
       newStatus ? 'Open Restaurant' : 'Close Restaurant',
@@ -282,7 +543,37 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
           onPress: async () => {
             const success = await saveRestaurantData({ isActive: newStatus });
             if (success) {
-              setRestaurantActive(newStatus);
+              // Local state is updated in saveRestaurantData
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const toggleNotifications = async (enabled: boolean) => {
+    const success = await saveRestaurantData({ notificationsEnabled: enabled });
+    if (!success) {
+      // Revert the switch if save failed
+      return;
+    }
+  };
+
+  const toggleAutoAcceptOrders = async (enabled: boolean) => {
+    Alert.alert(
+      enabled ? 'Enable Auto-Accept' : 'Disable Auto-Accept',
+      enabled 
+        ? 'New orders will be automatically accepted. You can still manually manage order preparation and delivery status.'
+        : 'You will need to manually accept each new order.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: enabled ? 'Enable' : 'Disable',
+          onPress: async () => {
+            const success = await saveRestaurantData({ autoAcceptOrders: enabled });
+            if (!success) {
+              // Revert the switch if save failed
+              return;
             }
           },
         },
@@ -502,11 +793,11 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
       items: [
         {
           id: '5',
-          icon: restaurantActive ? 'pause-circle-outline' : 'play-circle-outline',
+          icon: restaurantInfo.isActive ? 'pause-circle-outline' : 'play-circle-outline',
           title: 'Restaurant Status',
-          subtitle: restaurantActive ? 'Currently accepting orders' : 'Currently closed',
+          subtitle: restaurantInfo.isActive ? 'Currently accepting orders' : 'Currently closed',
           action: 'action',
-          iconColor: restaurantActive ? '#10B981' : '#EF4444',
+          iconColor: restaurantInfo.isActive ? '#10B981' : '#EF4444',
           onPress: toggleRestaurantStatus,
         },
         {
@@ -516,20 +807,20 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
           subtitle: 'Get notified of new orders',
           action: 'toggle',
           hasToggle: true,
-          toggleValue: notificationsEnabled,
+          toggleValue: restaurantInfo.notificationsEnabled,
           iconColor: '#8B5CF6',
-          onToggle: setNotificationsEnabled,
+          onToggle: toggleNotifications,
         },
         {
           id: '7',
           icon: 'checkmark-circle-outline',
           title: 'Auto Accept Orders',
-          subtitle: 'Automatically accept incoming orders',
+          subtitle: restaurantInfo.autoAcceptOrders ? 'Orders accepted automatically' : 'Manual order acceptance',
           action: 'toggle',
           hasToggle: true,
-          toggleValue: autoAcceptOrders,
+          toggleValue: restaurantInfo.autoAcceptOrders,
           iconColor: '#06B6D4',
-          onToggle: setAutoAcceptOrders,
+          onToggle: toggleAutoAcceptOrders,
         },
         {
           id: '8',
@@ -548,23 +839,14 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
       title: 'Business & Analytics',
       items: [
         {
-          id: '10',
-          icon: 'receipt-outline',
-          title: 'Order History',
-          subtitle: `${restaurantInfo.totalOrders.toLocaleString()} total orders`,
-          action: 'navigate',
-          iconColor: '#3B82F6',
-          onPress: () => console.log('Navigate to Order History'),
-        },
-        {
           id: '11',
           icon: 'star-outline',
           title: 'Reviews & Ratings',
-          subtitle: `${restaurantInfo.rating}/5 (${restaurantInfo.totalReviews} reviews)`,
+          subtitle: `${restaurantStats.rating}/5 (${restaurantStats.totalReviews} reviews)`,
           action: 'navigate',
           iconColor: '#F59E0B',
           onPress: () => console.log('Navigate to Reviews'),
-          badge: restaurantInfo.totalReviews > 0 ? '3 new' : undefined,
+          badge: restaurantStats.totalReviews > 0 ? '3 new' : undefined,
         },
         {
           id: '12',
@@ -593,7 +875,7 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
           id: '14',
           icon: 'wallet-outline',
           title: 'Revenue Reports',
-          subtitle: `${formatCurrency(restaurantInfo.monthlyRevenue)} this month`,
+          subtitle: `${formatCurrency(restaurantStats.monthlyRevenue)} this month • ${formatPrice(restaurantStats.averageOrderValue)} avg order`,
           action: 'navigate',
           iconColor: '#7C3AED',
           onPress: () => console.log('Navigate to Revenue Reports'),
@@ -1021,10 +1303,10 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
             <TouchableOpacity style={styles.statusIndicator}>
               <View style={[
                 styles.statusDot,
-                { backgroundColor: restaurantActive ? '#10B981' : '#EF4444' }
+                { backgroundColor: restaurantInfo.isActive ? '#10B981' : '#EF4444' }
               ]} />
               <Text style={styles.statusText}>
-                {restaurantActive ? 'Open' : 'Closed'}
+                {restaurantInfo.isActive ? 'Open' : 'Closed'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1058,14 +1340,14 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
             </View>
           )}
           
-          {/* Restaurant Stats */}
+          {/* Enhanced Restaurant Stats with Real Data */}
           <View style={[styles.statsContainer, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.95)' }]}>
             <View style={styles.statItem}>
               <View style={styles.statIconContainer}>
                 <Ionicons name="star" size={15} color="#F59E0B" />
               </View>
               <Text style={[styles.statNumber, { color: isDarkMode ? '#fff' : '#2D3748' }]}>
-                {restaurantInfo.rating || 'N/A'}
+                {restaurantStats.rating.toFixed(1) || 'N/A'}
               </Text>
               <Text style={[styles.statLabel, { color: isDarkMode ? theme.textSecondary : '#6B7280' }]}>
                 Rating
@@ -1077,7 +1359,7 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
                 <Ionicons name="receipt" size={15} color="#3B82F6" />
               </View>
               <Text style={[styles.statNumber, { color: isDarkMode ? '#fff' : '#2D3748' }]}>
-                {restaurantInfo.totalOrders}
+                {restaurantStats.totalOrders}
               </Text>
               <Text style={[styles.statLabel, { color: isDarkMode ? theme.textSecondary : '#6B7280' }]}>
                 Orders
@@ -1089,8 +1371,8 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
                 <Ionicons name="wallet" size={15} color="#10B981" />
               </View>
               <Text style={[styles.statNumber, { color: isDarkMode ? '#fff' : '#2D3748' }]}>
-                {restaurantInfo.monthlyRevenue > 0 
-                  ? formatCurrency(restaurantInfo.monthlyRevenue / 1000).replace('KES ', '') + 'k'
+                {restaurantStats.monthlyRevenue > 0 
+                  ? formatCurrency(restaurantStats.monthlyRevenue / 1000).replace('KES ', '') + 'k'
                   : '0'
                 }
               </Text>
@@ -1099,6 +1381,26 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
               </Text>
             </View>
           </View>
+
+          {/* Additional Stats Row */}
+          <View style={[styles.additionalStatsContainer, { backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' }]}>
+            <View style={styles.additionalStatItem}>
+              <Text style={[styles.additionalStatNumber, { color: theme.text }]}>
+                {formatPrice(restaurantStats.averageOrderValue)}
+              </Text>
+              <Text style={[styles.additionalStatLabel, { color: theme.textSecondary }]}>
+                Avg Order
+              </Text>
+            </View>
+            {restaurantStats.favoriteItem && (
+              <View style={styles.additionalStatItem}>
+                <Ionicons name="heart" size={16} color="#EF4444" />
+                <Text style={[styles.favoriteItemText, { color: theme.textSecondary }]} numberOfLines={1}>
+                  {restaurantStats.favoriteItem}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </LinearGradient>
 
@@ -1106,6 +1408,14 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[theme.primary]}
+            tintColor={theme.primary}
+          />
+        }
       >
         {/* Setup Notice for New Restaurants */}
         {(!restaurantInfo.name || restaurantInfo.cuisine.length === 0) && (
@@ -1129,19 +1439,34 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
           </View>
         )}
 
+        {/* Auto-Accept Status Alert */}
+        {restaurantInfo.autoAcceptOrders && restaurantInfo.isActive && (
+          <View style={[styles.autoAcceptNotice, { backgroundColor: theme.success + '20', borderColor: theme.success }]}>
+            <Ionicons name="checkmark-circle" size={20} color={theme.success} />
+            <Text style={[styles.autoAcceptText, { color: theme.success }]}>
+              Auto-accept is enabled. New orders will be automatically confirmed.
+            </Text>
+          </View>
+        )}
+
         {/* Quick Info Cards */}
         <View style={styles.quickInfoContainer}>
           <View style={[styles.quickInfoCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
             <View style={styles.quickInfoHeader}>
               <Ionicons name="time" size={20} color={theme.success} />
-              <Text style={[styles.quickInfoTitle, { color: theme.text }]}>Today's Hours</Text>
+              <Text style={[styles.quickInfoTitle, { color: theme.text }]}>Today's Status</Text>
             </View>
             <Text style={[styles.quickInfoText, { color: theme.textSecondary }]}>
-              Currently: {restaurantActive ? 'Open' : 'Closed'}
+              Currently: {restaurantInfo.isActive ? 'Open' : 'Closed'}
             </Text>
             <Text style={[styles.quickInfoText, { color: theme.textSecondary }]}>
               {getCurrentDayStatus()}
             </Text>
+            {restaurantStats.todayRevenue > 0 && (
+              <Text style={[styles.quickInfoRevenue, { color: theme.primary }]}>
+                Today's Revenue: {formatPrice(restaurantStats.todayRevenue)}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -1164,7 +1489,7 @@ const RestaurantProfileScreen = ({ user }: { user: User }) => {
         {/* App Version */}
         <View style={styles.versionContainer}>
           <Text style={[styles.versionText, { color: theme.textMuted }]}>YetuEats Restaurant v1.0.0</Text>
-          <Text style={[styles.copyrightText, { color: theme.textMuted }]}>© 2024 YetuEats. All rights reserved.</Text>
+          <Text style={[styles.copyrightText, { color: theme.textMuted }]}>© 2025 YetuEats. All rights reserved.</Text>
         </View>
       </ScrollView>
 
@@ -1243,11 +1568,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  settingsButton: {
-    padding: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 20,
-  },
   restaurantHeader: {
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -1321,6 +1641,7 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     paddingHorizontal: 24,
     marginHorizontal: 16,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
@@ -1353,6 +1674,33 @@ const styles = StyleSheet.create({
     height: 50,
     marginHorizontal: 20,
     borderRadius: 1,
+  },
+  additionalStatsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginHorizontal: 16,
+    borderRadius: 16,
+  },
+  additionalStatItem: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  additionalStatNumber: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  additionalStatLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  favoriteItemText: {
+    fontSize: 12,
+    fontWeight: '500',
+    maxWidth: 100,
   },
   scrollView: {
     flex: 1,
@@ -1395,6 +1743,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  autoAcceptNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 24,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  autoAcceptText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
+  },
   quickInfoContainer: {
     paddingHorizontal: 24,
     marginBottom: 35,
@@ -1425,6 +1788,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 4,
     lineHeight: 20,
+  },
+  quickInfoRevenue: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 8,
   },
   section: {
     marginBottom: 28,

@@ -13,9 +13,10 @@ import LoginScreen from './app/screens/Login';
 import CustomerNavigation from './app/navigation/CustomerNavigation';
 import RestaurantNavigation from './app/navigation/RestaurantNavigation';
 import DeliveryNavigation from './app/navigation/DeliveryNavigation';
+import AdminNavigation from './app/navigation/AdminNavigation';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
-type UserType = 'customer' | 'restaurant' | 'delivery';
+type UserType = 'customer' | 'restaurant' | 'delivery' | 'admin';
 
 interface UserData {
   uid: string;
@@ -55,29 +56,48 @@ const AppContent = () => {
       if (user) {
         setIsLoadingUserData(true);
         try {
-          // Fetch user data from Firestore to determine user type
-          const userDoc = await getDoc(doc(FIREBASE_DB, 'users', user.uid));
+          // First check if user is an admin
+          const adminDoc = await getDoc(doc(FIREBASE_DB, 'admins', user.uid));
           
-          if (userDoc.exists()) {
-            const data = userDoc.data() as UserData;
-            console.log('User data loaded:', data);
-            setUserData(data);
-          } else {
-            console.log('No user document found, creating default...');
-            // If no document exists, create one with default customer type
+          if (adminDoc.exists()) {
+            // User is an admin
+            const adminData = adminDoc.data();
             const defaultUserData: UserData = {
               uid: user.uid,
-              name: user.displayName || 'User',
+              name: adminData.name || user.displayName || 'Admin',
               email: user.email || '',
-              userType: 'customer',
+              userType: 'admin',
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               isActive: true,
-              profileComplete: false,
+              profileComplete: true,
             };
-            
-            // Note: In a real app, you might want to save this to Firestore
             setUserData(defaultUserData);
+          } else {
+            // Check for regular user document
+            const userDoc = await getDoc(doc(FIREBASE_DB, 'users', user.uid));
+            
+            if (userDoc.exists()) {
+              const data = userDoc.data() as UserData;
+              console.log('User data loaded:', data);
+              setUserData(data);
+            } else {
+              console.log('No user document found, creating default...');
+              // If no document exists, create one with default customer type
+              const defaultUserData: UserData = {
+                uid: user.uid,
+                name: user.displayName || 'User',
+                email: user.email || '',
+                userType: 'customer',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                isActive: true,
+                profileComplete: false,
+              };
+              
+              // Note: In a real app, you might want to save this to Firestore
+              setUserData(defaultUserData);
+            }
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
@@ -120,6 +140,8 @@ const AppContent = () => {
         return <RestaurantNavigation user={user} />;
       case 'delivery':
         return <DeliveryNavigation user={user} />;
+      case 'admin':
+        return <AdminNavigation user={user} />;
       default:
         // Default to customer if user type is unknown
         console.warn('Unknown user type:', userData.userType, 'defaulting to customer');
