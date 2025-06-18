@@ -1,119 +1,17 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { User } from 'firebase/auth';
-import { Home, MapPin, TrendingUp, User as UserIcon } from 'lucide-react-native';
+import { Home, MapPin, TrendingUp, User as UserIcon, ShoppingBag } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
-import { View, Text, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+
+// Import the delivery screens
+import DeliveryDashboardScreen from '../screens/delivery/Dashboard';
+import DeliveryMapScreen from '../screens/delivery/Maps';
+import DeliveryOrdersScreen from '../screens/delivery/Orders';
+import DeliveryAnalyticsScreen from '../screens/delivery/Analytics';
+import DeliveryProfileScreen from '../screens/delivery/Profile';
 
 const Tab = createBottomTabNavigator();
-
-// Placeholder screens for delivery partner
-const DeliveryDashboardScreen = ({ user }: { user: User }) => {
-  const { theme } = useTheme();
-  
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <LinearGradient
-        colors={theme.primaryGradient as [string, string]}
-        style={styles.header}
-      >
-        <Text style={styles.headerTitle}>Delivery Dashboard</Text>
-        <Text style={styles.headerSubtitle}>Welcome, {user.displayName}!</Text>
-      </LinearGradient>
-      
-      <View style={styles.content}>
-        <View style={[styles.card, { backgroundColor: theme.surface }]}>
-          <Ionicons name="bicycle" size={48} color={theme.primary} />
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Delivery Partner Dashboard</Text>
-          <Text style={[styles.cardText, { color: theme.textSecondary }]}>
-            Your delivery partner interface is coming soon! 
-            You'll be able to manage deliveries, track earnings, and more.
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-const DeliveryMapScreen = () => {
-  const { theme } = useTheme();
-  
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <LinearGradient
-        colors={theme.primaryGradient as [string, string]}
-        style={styles.header}
-      >
-        <Text style={styles.headerTitle}>Delivery Map</Text>
-        <Text style={styles.headerSubtitle}>Find nearby orders</Text>
-      </LinearGradient>
-      
-      <View style={styles.content}>
-        <View style={[styles.card, { backgroundColor: theme.surface }]}>
-          <Ionicons name="map" size={48} color={theme.primary} />
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Interactive Map</Text>
-          <Text style={[styles.cardText, { color: theme.textSecondary }]}>
-            View available deliveries on an interactive map with real-time updates.
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-const DeliveryEarningsScreen = () => {
-  const { theme } = useTheme();
-  
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <LinearGradient
-        colors={theme.primaryGradient as [string, string]}
-        style={styles.header}
-      >
-        <Text style={styles.headerTitle}>Earnings</Text>
-        <Text style={styles.headerSubtitle}>Track your income</Text>
-      </LinearGradient>
-      
-      <View style={styles.content}>
-        <View style={[styles.card, { backgroundColor: theme.surface }]}>
-          <Ionicons name="analytics" size={48} color={theme.primary} />
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Earnings Analytics</Text>
-          <Text style={[styles.cardText, { color: theme.textSecondary }]}>
-            View detailed earnings reports, tips, and payment history.
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-const DeliveryProfileScreen = ({ user }: { user: User }) => {
-  const { theme } = useTheme();
-  
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <LinearGradient
-        colors={theme.primaryGradient as [string, string]}
-        style={styles.header}
-      >
-        <Text style={styles.headerTitle}>Profile</Text>
-        <Text style={styles.headerSubtitle}>Manage your account</Text>
-      </LinearGradient>
-      
-      <View style={styles.content}>
-        <View style={[styles.card, { backgroundColor: theme.surface }]}>
-          <Ionicons name="person" size={48} color={theme.primary} />
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Delivery Partner Profile</Text>
-          <Text style={[styles.cardText, { color: theme.textSecondary }]}>
-            Manage your delivery partner profile, vehicle information, and account settings.
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-};
 
 const DeliveryNavigation = ({ user }: { user: User }) => {
   const { theme } = useTheme();
@@ -127,28 +25,40 @@ const DeliveryNavigation = ({ user }: { user: User }) => {
           backgroundColor: theme.tabBarBackground,
           borderTopWidth: 1,
           borderTopColor: theme.tabBarBorder,
-          paddingBottom: 5,
-          paddingTop: 5,
-          height: 70,
+          paddingBottom: 8,
+          paddingTop: 8,
+          height: 75,
           shadowColor: theme.shadow,
           shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-          elevation: 8,
+          shadowOpacity: 0.12,
+          shadowRadius: 8,
+          elevation: 12,
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textMuted,
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
+          fontSize: 11,
+          fontWeight: '600',
+          marginTop: 4,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 4,
+        },
+        tabBarIconStyle: {
+          marginTop: 2,
         },
       }}
     >
       <Tab.Screen
         name="Dashboard"
         options={{
-          tabBarIcon: ({ color }) => (
-            <Home size={iconSize} color={color} />
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color, focused }) => (
+            <Home 
+              size={focused ? iconSize + 2 : iconSize} 
+              color={color} 
+              strokeWidth={focused ? 2.5 : 2}
+            />
           ),
         }}
       >
@@ -157,29 +67,62 @@ const DeliveryNavigation = ({ user }: { user: User }) => {
       
       <Tab.Screen
         name="Map"
-        component={DeliveryMapScreen}
         options={{
-          tabBarIcon: ({ color }) => (
-            <MapPin size={iconSize} color={color} />
+          tabBarLabel: 'Map',
+          tabBarIcon: ({ color, focused }) => (
+            <MapPin 
+              size={focused ? iconSize + 2 : iconSize} 
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
           ),
         }}
-      />
+      >
+        {() => <DeliveryMapScreen user={user} />}
+      </Tab.Screen>
       
       <Tab.Screen
-        name="Earnings"
-        component={DeliveryEarningsScreen}
+        name="Orders"
         options={{
-          tabBarIcon: ({ color }) => (
-            <TrendingUp size={iconSize} color={color} />
+          tabBarLabel: 'Orders',
+          tabBarIcon: ({ color, focused }) => (
+            <ShoppingBag 
+              size={focused ? iconSize + 2 : iconSize} 
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
           ),
         }}
-      />
+      >
+        {() => <DeliveryOrdersScreen user={user} />}
+      </Tab.Screen>
+      
+      <Tab.Screen
+        name="Analytics"
+        options={{
+          tabBarLabel: 'Analytics',
+          tabBarIcon: ({ color, focused }) => (
+            <TrendingUp 
+              size={focused ? iconSize + 2 : iconSize} 
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
+          ),
+        }}
+      >
+        {() => <DeliveryAnalyticsScreen user={user} />}
+      </Tab.Screen>
       
       <Tab.Screen
         name="Profile"
         options={{
-          tabBarIcon: ({ color }) => (
-            <UserIcon size={iconSize} color={color} />
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <UserIcon 
+              size={focused ? iconSize + 2 : iconSize} 
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
           ),
         }}
       >
@@ -188,57 +131,5 @@ const DeliveryNavigation = ({ user }: { user: User }) => {
     </Tab.Navigator>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 20,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  card: {
-    padding: 30,
-    borderRadius: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    width: '100%',
-    maxWidth: 300,
-  },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  cardText: {
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-});
 
 export default DeliveryNavigation;

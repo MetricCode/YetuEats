@@ -27,9 +27,15 @@ import {
   query,
   where,
   orderBy,
-  limit
+  limit,
+  setDoc
 } from 'firebase/firestore';
-import { FIREBASE_DB } from '../../../FirebaseConfig';
+import { 
+  createUserWithEmailAndPassword, 
+  updateProfile,
+  sendPasswordResetEmail
+} from 'firebase/auth';
+import { FIREBASE_DB, FIREBASE_AUTH } from '../../../FirebaseConfig';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { formatPrice } from '../../../services/currency';
 
@@ -92,6 +98,7 @@ const AdminUsersManagementScreen = ({ user }: { user: User }) => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -854,31 +861,23 @@ const AdminUsersManagementScreen = ({ user }: { user: User }) => {
     </Modal>
   );
 
-  if (loading) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={[styles.loadingText, { color: theme.text }]}>Loading users...</Text>
-      </View>
-    );
-  }
+  // Add this function to your component
+  const handleUserCreated = () => {
+    loadUsers(); // Refresh the users list
+  };
 
-  const customerCount = users.filter(u => u.userType === 'customer').length;
-  const restaurantCount = users.filter(u => u.userType === 'restaurant').length;
-  const activeCount = users.filter(u => u.isActive && !u.isBlocked).length;
-
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <LinearGradient
-        colors={theme.primaryGradient as [string, string]}
-        style={styles.header}
-      >
-        <View style={styles.headerContent}>
-          <View>
-            <Text style={styles.headerTitle}>User Management</Text>
-            <Text style={styles.headerSubtitle}>Manage customers and restaurant users</Text>
-          </View>
+  // Update your header to include a create button
+  const renderHeaderWithCreateButton = () => (
+    <LinearGradient
+      colors={theme.primaryGradient as [string, string]}
+      style={styles.header}
+    >
+      <View style={styles.headerContent}>
+        <View>
+          <Text style={styles.headerTitle}>User Management</Text>
+          <Text style={styles.headerSubtitle}>Manage customers and restaurant users</Text>
+        </View>
+        <View style={headerStyles.headerRight}>
           <View style={styles.headerStats}>
             <View style={styles.headerStatItem}>
               <Text style={styles.headerStatNumber}>{customerCount}</Text>
@@ -893,9 +892,35 @@ const AdminUsersManagementScreen = ({ user }: { user: User }) => {
               <Text style={styles.headerStatLabel}>Active</Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={headerStyles.createUserButton}
+            onPress={() => setShowCreateModal(true)}
+          >
+            <Ionicons name="person-add" size={20} color={theme.primary} />
+          </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </View>
+    </LinearGradient>
+  );
 
+  if (loading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.text }]}>Loading users...</Text>
+      </View>
+    );
+  }
+
+  const customerCount = users.filter(u => u.userType === 'customer').length;
+  const restaurantCount = users.filter(u => u.userType === 'restaurant').length;
+  const activeCount = users.filter(u => u.isActive && !u.isBlocked).length;
+
+  // Update your return statement to include the create modal
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {renderHeaderWithCreateButton()}
+      
       {/* Search and Sort */}
       <View style={[styles.searchContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
         <View style={[styles.searchInputContainer, { backgroundColor: theme.inputBackground }]}>
@@ -979,6 +1004,13 @@ const AdminUsersManagementScreen = ({ user }: { user: User }) => {
       {/* Modals */}
       {renderDetailsModal()}
       {renderStatsModal()}
+      
+      {/* Create User Modal */}
+      <CreateUserModal
+        visible={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onUserCreated={handleUserCreated}
+      />
     </View>
   );
 };
@@ -1364,6 +1396,596 @@ const styles = StyleSheet.create({
   statsLoadingText: {
     marginTop: 16,
     fontSize: 16,
+  },
+  // Create User Modal Styles
+  userTypeContainer: {
+    marginBottom: 20,
+  },
+  userTypeButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  userTypeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  userTypeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  vehicleTypeContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  vehicleTypeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  vehicleTypeText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  passwordContainer: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  passwordHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  passwordTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  temporaryPassword: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+    marginBottom: 8,
+    letterSpacing: 2,
+  },
+  passwordNote: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  createButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 20,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
+});
+
+// Add these additional styles
+const headerStyles = StyleSheet.create({
+  headerRight: {
+    alignItems: 'flex-end',
+  },
+  createUserButton: {
+    backgroundColor: '#fff',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+});
+
+// Define the form data interface for creating a user
+interface CreateAccountForm {
+  name: string;
+  email: string;
+  phone: string;
+  userType: 'customer' | 'restaurant' | 'delivery';
+  temporaryPassword: string;
+  restaurantName?: string;
+  restaurantAddress?: string;
+  vehicleType?: string;
+  licenseNumber?: string;
+}
+
+const CreateUserModal = ({ 
+  visible, 
+  onClose, 
+  onUserCreated 
+}: { 
+  visible: boolean;
+  onClose: () => void;
+  onUserCreated: () => void;
+}) => {
+  const { theme } = useTheme();
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState<CreateAccountForm>({
+    name: '',
+    email: '',
+    phone: '',
+    userType: 'customer',
+    temporaryPassword: '',
+    restaurantName: '',
+    restaurantAddress: '',
+    vehicleType: '',
+    licenseNumber: '',
+  });
+
+  const generateTemporaryPassword = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let password = '';
+    for (let i = 0; i < 8; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setFormData(prev => ({ ...prev, temporaryPassword: password }));
+  };
+
+  useEffect(() => {
+    if (visible && !formData.temporaryPassword) {
+      generateTemporaryPassword();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const validateForm = () => {
+    if (!formData.name.trim() || !formData.email.trim() || !formData.phone.trim()) {
+      Alert.alert('Missing Information', 'Please fill in all required fields.');
+      return false;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+      return false;
+    }
+
+    if (formData.userType === 'restaurant' && !formData.restaurantName?.trim()) {
+      Alert.alert('Missing Information', 'Restaurant name is required for restaurant accounts.');
+      return false;
+    }
+
+    if (formData.userType === 'delivery' && (!formData.vehicleType?.trim() || !formData.licenseNumber?.trim())) {
+      Alert.alert('Missing Information', 'Vehicle type and license number are required for delivery accounts.');
+      return false;
+    }
+
+    return true;
+  };
+
+  const createAccount = async () => {
+    if (!validateForm()) return;
+
+    setLoading(true);
+    
+    try {
+      // Create the user account
+      const userCredential = await createUserWithEmailAndPassword(
+        FIREBASE_AUTH,
+        formData.email.trim(),
+        formData.temporaryPassword
+      );
+
+      // Update the user's display name
+      await updateProfile(userCredential.user, {
+        displayName: formData.name.trim()
+      });
+
+      // Create user document in Firestore
+      const userData: any = {
+        uid: userCredential.user.uid,
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        userType: formData.userType,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        isActive: true,
+        profileComplete: true,
+        createdByAdmin: true,
+        temporaryPassword: true, // Flag to indicate they need to change password
+      };
+
+      // Add specific fields based on user type
+      if (formData.userType === 'restaurant') {
+        Object.assign(userData, {
+          restaurantName: formData.restaurantName?.trim(),
+          restaurantAddress: formData.restaurantAddress?.trim(),
+          isVerified: false,
+          isApproved: false,
+        });
+      } else if (formData.userType === 'delivery') {
+        Object.assign(userData, {
+          vehicleType: formData.vehicleType?.trim(),
+          licenseNumber: formData.licenseNumber?.trim(),
+          isVerified: false,
+          isApproved: false,
+          isAvailable: false,
+        });
+      }
+
+      await setDoc(doc(FIREBASE_DB, 'users', userCredential.user.uid), userData);
+
+      // Send password reset email so they can set their own password
+      await sendPasswordResetEmail(FIREBASE_AUTH, formData.email.trim());
+
+      Alert.alert(
+        'Account Created Successfully',
+        `A ${formData.userType} account has been created for ${formData.name}. They will receive an email to set their password.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              resetForm();
+              onUserCreated();
+              onClose();
+            }
+          }
+        ]
+      );
+
+    } catch (error: any) {
+      console.error('Error creating account:', error);
+      let errorMessage = 'Failed to create account. Please try again.';
+      
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'An account with this email already exists.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.';
+      }
+      
+      Alert.alert('Account Creation Failed', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      phone: '',
+      userType: 'customer',
+      temporaryPassword: '',
+      restaurantName: '',
+      restaurantAddress: '',
+      vehicleType: '',
+      licenseNumber: '',
+    });
+  };
+
+  const renderUserTypeSelector = () => (
+    <View style={additionalStyles.userTypeContainer}>
+      <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Account Type</Text>
+      <View style={additionalStyles.userTypeButtons}>
+        {(['customer', 'restaurant', 'delivery'] as const).map((type) => (
+          <TouchableOpacity
+            key={type}
+            style={[
+              additionalStyles.userTypeButton,
+              {
+                backgroundColor: formData.userType === type ? theme.primary : theme.inputBackground,
+                borderColor: formData.userType === type ? theme.primary : theme.border
+              }
+            ]}
+            onPress={() => setFormData(prev => ({ ...prev, userType: type }))}
+          >
+            <Ionicons
+              name={
+                type === 'customer' ? 'person' :
+                type === 'restaurant' ? 'restaurant' : 'bicycle'
+              }
+              size={20}
+              color={formData.userType === type ? '#fff' : theme.textSecondary}
+            />
+            <Text style={[
+              additionalStyles.userTypeButtonText,
+              { color: formData.userType === type ? '#fff' : theme.textSecondary }
+            ]}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  const renderConditionalFields = () => {
+    if (formData.userType === 'restaurant') {
+      return (
+        <>
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Restaurant Name *</Text>
+            <TextInput
+              style={[additionalStyles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+              placeholder="Enter restaurant name"
+              placeholderTextColor={theme.placeholder}
+              value={formData.restaurantName}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, restaurantName: text }))}
+            />
+          </View>
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Restaurant Address</Text>
+            <TextInput
+              style={[additionalStyles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+              placeholder="Enter restaurant address"
+              placeholderTextColor={theme.placeholder}
+              value={formData.restaurantAddress}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, restaurantAddress: text }))}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
+        </>
+      );
+    }
+
+    if (formData.userType === 'delivery') {
+      return (
+        <>
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Vehicle Type *</Text>
+            <View style={additionalStyles.vehicleTypeContainer}>
+              {['Motorcycle', 'Bicycle', 'Car', 'Scooter'].map((vehicle) => (
+                <TouchableOpacity
+                  key={vehicle}
+                  style={[
+                    additionalStyles.vehicleTypeButton,
+                    {
+                      backgroundColor: formData.vehicleType === vehicle ? theme.primary : theme.inputBackground,
+                      borderColor: formData.vehicleType === vehicle ? theme.primary : theme.border
+                    }
+                  ]}
+                  onPress={() => setFormData(prev => ({ ...prev, vehicleType: vehicle }))}
+                >
+                  <Text style={[
+                    additionalStyles.vehicleTypeText,
+                    { color: formData.vehicleType === vehicle ? '#fff' : theme.textSecondary }
+                  ]}>
+                    {vehicle}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>License Number *</Text>
+            <TextInput
+              style={[additionalStyles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+              placeholder="Enter license number"
+              placeholderTextColor={theme.placeholder}
+              value={formData.licenseNumber}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, licenseNumber: text }))}
+            />
+          </View>
+        </>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+    >
+      <View style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+        <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+          <TouchableOpacity onPress={onClose}>
+            <Ionicons name="close" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>Create New Account</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          {renderUserTypeSelector()}
+
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Full Name *</Text>
+            <TextInput
+              style={[additionalStyles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+              placeholder="Enter full name"
+              placeholderTextColor={theme.placeholder}
+              value={formData.name}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, name: text }))}
+            />
+          </View>
+
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Email Address *</Text>
+            <TextInput
+              style={[additionalStyles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+              placeholder="Enter email address"
+              placeholderTextColor={theme.placeholder}
+              value={formData.email}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={additionalStyles.inputContainer}>
+            <Text style={[additionalStyles.inputLabel, { color: theme.text }]}>Phone Number *</Text>
+            <TextInput
+              style={[additionalStyles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+              placeholder="Enter phone number"
+              placeholderTextColor={theme.placeholder}
+              value={formData.phone}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
+              keyboardType="phone-pad"
+            />
+          </View>
+
+          {renderConditionalFields()}
+
+          <View style={[additionalStyles.passwordContainer, { backgroundColor: theme.surface }]}>
+            <View style={additionalStyles.passwordHeader}>
+              <Text style={[additionalStyles.passwordTitle, { color: theme.text }]}>Temporary Password</Text>
+              <TouchableOpacity onPress={generateTemporaryPassword}>
+                <Ionicons name="refresh" size={20} color={theme.primary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[additionalStyles.temporaryPassword, { color: theme.textSecondary }]}>
+              {formData.temporaryPassword}
+            </Text>
+            <Text style={[additionalStyles.passwordNote, { color: theme.textMuted }]}>
+              The user will receive an email to set their own password.
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[additionalStyles.createButton, { backgroundColor: theme.primary }]}
+            onPress={createAccount}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="person-add" size={20} color="#fff" />
+                <Text style={additionalStyles.createButtonText}>Create Account</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+};
+
+const additionalStyles = StyleSheet.create({
+  // Create User Modal Styles
+  userTypeContainer: {
+    marginBottom: 20,
+  },
+  userTypeButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  userTypeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  userTypeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  vehicleTypeContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  vehicleTypeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  vehicleTypeText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  passwordContainer: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  passwordHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  passwordTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  temporaryPassword: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+    marginBottom: 8,
+    letterSpacing: 2,
+  },
+  passwordNote: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  createButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 20,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
   },
 });
 
