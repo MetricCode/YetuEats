@@ -74,7 +74,7 @@ const DeliveryOrdersScreen = ({ user }: { user: User }) => {
       
       const q = query(
         collection(FIREBASE_DB, 'orders'),
-        where('deliveryPartnerId', '==', user.uid),
+        where('deliveryId', '==', user.uid),
         orderBy('createdAt', 'desc')
       );
 

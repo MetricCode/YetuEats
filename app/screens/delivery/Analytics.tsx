@@ -114,7 +114,7 @@ const DeliveryAnalyticsScreen = ({ user }: { user: User }) => {
       const ordersRef = collection(FIREBASE_DB, 'orders');
       const q = query(
         ordersRef,
-        where('deliveryPartnerId', '==', user.uid),
+        where('deliveryId', '==', user.uid),
         where('status', '==', 'delivered'),
         orderBy('deliveredAt', 'desc')
       );
@@ -166,7 +166,7 @@ const DeliveryAnalyticsScreen = ({ user }: { user: User }) => {
       const ordersRef = collection(FIREBASE_DB, 'orders');
       const q = query(
         ordersRef,
-        where('deliveryPartnerId', '==', user.uid),
+        where('deliveryId', '==', user.uid),
         orderBy('createdAt', 'desc')
       );
 

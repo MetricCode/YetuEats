@@ -23,7 +23,7 @@ import { formatPrice } from '../../../services/currency';
 
 const { width } = Dimensions.get('window');
 
-interface DeliveryPartnerData {
+interface DeliveryData {
   uid: string;
   name: string;
   email: string;
@@ -104,7 +104,7 @@ interface ProfileMenuItem {
 
 const DeliveryProfileScreen = ({ user }: { user: User }) => {
   const { theme, isDarkMode, toggleTheme } = useTheme();
-  const [userData, setUserData] = useState<DeliveryPartnerData | null>(null);
+  const [userData, setUserData] = useState<DeliveryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
@@ -150,10 +150,10 @@ const DeliveryProfileScreen = ({ user }: { user: User }) => {
   const loadUserData = async () => {
     try {
       setLoading(true);
-      const userDoc = await getDoc(doc(FIREBASE_DB, 'deliveryPartners', user.uid));
+      const userDoc = await getDoc(doc(FIREBASE_DB, 'deliverys', user.uid));
       
       if (userDoc.exists()) {
-        const data = userDoc.data() as DeliveryPartnerData;
+        const data = userDoc.data() as DeliveryData;
         setUserData(data);
         populateFormData(data);
       } else {
@@ -168,7 +168,7 @@ const DeliveryProfileScreen = ({ user }: { user: User }) => {
   };
 
   const createDefaultUserData = async () => {
-    const defaultData: DeliveryPartnerData = {
+    const defaultData: DeliveryData = {
       uid: user.uid,
       name: user.displayName || 'Delivery Partner',
       email: user.email || '',
@@ -221,12 +221,12 @@ const DeliveryProfileScreen = ({ user }: { user: User }) => {
       },
     };
     
-    await setDoc(doc(FIREBASE_DB, 'deliveryPartners', user.uid), defaultData);
+    await setDoc(doc(FIREBASE_DB, 'deliverys', user.uid), defaultData);
     setUserData(defaultData);
     populateFormData(defaultData);
   };
 
-  const populateFormData = (data: DeliveryPartnerData) => {
+  const populateFormData = (data: DeliveryData) => {
     setEditData({
       name: data.name,
       phoneNumber: data.phoneNumber,
@@ -242,13 +242,13 @@ const DeliveryProfileScreen = ({ user }: { user: User }) => {
     setWorkingHours(data.workingHours);
   };
 
-  const updateUserData = async (updates: Partial<DeliveryPartnerData>) => {
+  const updateUserData = async (updates: Partial<DeliveryData>) => {
     if (!userData) return;
 
     try {
       setSaving(true);
       const updatedData = { ...userData, ...updates, updatedAt: new Date() };
-      await updateDoc(doc(FIREBASE_DB, 'deliveryPartners', user.uid), updatedData);
+      await updateDoc(doc(FIREBASE_DB, 'deliverys', user.uid), updatedData);
       setUserData(updatedData);
       return true;
     } catch (error) {
@@ -308,7 +308,7 @@ const DeliveryProfileScreen = ({ user }: { user: User }) => {
     }
   };
 
-  const handleTogglePreference = async (key: keyof DeliveryPartnerData['preferences'], value: boolean | number | string[]) => {
+  const handleTogglePreference = async (key: keyof DeliveryData['preferences'], value: boolean | number | string[]) => {
     if (!userData) return;
 
     const updatedPreferences = { ...userData.preferences, [key]: value };

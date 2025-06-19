@@ -90,7 +90,7 @@ const DeliveryDashboardScreen = ({ user }: { user: User }) => {
     try {
       const q = query(
         collection(FIREBASE_DB, 'orders'),
-        where('deliveryPartnerId', '==', user.uid),
+        where('deliveryId', '==', user.uid),
         where('status', 'in', ['picked_up', 'on_the_way']),
         orderBy('createdAt', 'desc'),
         limit(10)
@@ -132,7 +132,7 @@ const DeliveryDashboardScreen = ({ user }: { user: User }) => {
       const q = query(
         collection(FIREBASE_DB, 'orders'),
         where('status', '==', 'ready_for_pickup'),
-        where('deliveryPartnerId', '==', null),
+        where('deliveryId', '==', null),
         orderBy('createdAt', 'desc'),
         limit(5)
       );
@@ -186,7 +186,7 @@ const DeliveryDashboardScreen = ({ user }: { user: User }) => {
     try {
       setIsOnline(value);
       // Update delivery partner status in Firestore
-      await updateDoc(doc(FIREBASE_DB, 'deliveryPartners', user.uid), {
+      await updateDoc(doc(FIREBASE_DB, 'deliverys', user.uid), {
         isOnline: value,
         lastSeen: new Date(),
       });
@@ -200,7 +200,7 @@ const DeliveryDashboardScreen = ({ user }: { user: User }) => {
   const acceptOrder = async (orderId: string) => {
     try {
       await updateDoc(doc(FIREBASE_DB, 'orders', orderId), {
-        deliveryPartnerId: user.uid,
+        deliveryId: user.uid,
         status: 'picked_up',
         pickedUpAt: new Date(),
       });
